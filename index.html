@@ -1,0 +1,911 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>自治会館の予約</title>
+<!--
+  第一住宅自治会 自治会館 予約画面（LIFF）
+  GitHub Pages（main ブランチの /docs）で公開し、LINE Developers の LIFF エンドポイントURLに設定します。
+  データの読み書きは Google Apps Script（line-bot プロジェクト）の Web アプリに対して行います。
+-->
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --theme: #1C4E3A;
+    --theme-dark: #133628;
+    --theme-soft: #E3EFE8;
+    --bg: #F6F6F2;
+    --card: #FFFFFF;
+    --text: #1F2933;
+    --muted: #5B6670;
+    --line: #D3D8D4;
+    --busy-bg: #ECEDEC;
+    --busy-text: #8A9095;
+    --alert: #B3261E;
+    --alert-soft: #FCEBEA;
+    --sun: #C0392B;
+    --sat: #2563A8;
+    --pick: #F2B632;
+    --pick-soft: #FFF4D6;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", Meiryo, sans-serif;
+    font-size: 18px;
+    line-height: 1.6;
+    padding-bottom: calc(110px + env(safe-area-inset-bottom));
+  }
+  button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  button:disabled { cursor: default; }
+  input, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--pick); outline-offset: 2px; }
+  .hidden { display: none !important; }
+
+  .app-header {
+    background: var(--theme);
+    color: #fff;
+    padding: 14px 16px;
+    font-size: 20px;
+    font-weight: 700;
+    text-align: center;
+    letter-spacing: 0.05em;
+  }
+  .tabs { display: flex; background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+  .tab {
+    flex: 1; border: 0; background: none; padding: 14px 8px; font-size: 18px; font-weight: 700; color: var(--muted);
+    border-bottom: 4px solid transparent;
+  }
+  .tab[aria-selected="true"] { color: var(--theme); border-bottom-color: var(--theme); }
+
+  main { max-width: 560px; margin: 0 auto; padding: 0 16px; }
+
+  .step { background: var(--card); border-radius: 14px; margin-top: 16px; padding: 18px 16px 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+  .step h2 { margin: 0 0 12px; font-size: 20px; display: flex; align-items: center; gap: 10px; }
+  .num {
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+    width: 34px; height: 34px; border-radius: 50%; background: var(--theme); color: #fff; font-size: 18px;
+  }
+  .guide { margin: 0 0 12px; color: var(--muted); font-size: 17px; }
+  .guide.strong { color: var(--text); font-weight: 700; font-size: 18px; }
+  .guide.error { color: var(--alert); font-weight: 700; }
+
+  /* カレンダー */
+  .cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .cal-title { font-size: 20px; font-weight: 700; }
+  .cal-nav button {
+    border: 2px solid var(--theme); background: #fff; color: var(--theme); border-radius: 10px;
+    padding: 6px 12px; font-size: 16px; font-weight: 700; min-height: 44px;
+  }
+  .cal-nav button:disabled { border-color: var(--line); color: var(--busy-text); }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .cal-dow { text-align: center; font-size: 15px; font-weight: 700; color: var(--muted); padding: 2px 0; }
+  .cal-dow.sun { color: var(--sun); } .cal-dow.sat { color: var(--sat); }
+  .cal-day {
+    border: 1px solid var(--line); background: #fff; border-radius: 8px; min-height: 56px; padding: 4px 0 2px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.2;
+  }
+  .cal-day .d { font-size: 18px; font-weight: 700; }
+  .cal-day .m { font-size: 16px; font-weight: 700; margin-top: 2px; }
+  .cal-day.sun .d { color: var(--sun); } .cal-day.sat .d { color: var(--sat); }
+  .cal-day.free .m { color: var(--theme); }
+  .cal-day.some .m { color: #B7791F; }
+  .cal-day.full { background: var(--busy-bg); } .cal-day.full .m { color: var(--busy-text); }
+  .cal-day.out { background: transparent; border-color: transparent; color: #B8BDC0; }
+  .cal-day.out .d { color: #B8BDC0; font-weight: 400; }
+  .cal-day.empty { visibility: hidden; }
+  .cal-day.selected { background: var(--theme); border-color: var(--theme); }
+  .cal-day.selected .d, .cal-day.selected .m { color: #fff; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 10px; font-size: 15px; color: var(--muted); }
+  .legend b { font-size: 16px; }
+  .cal-loading { text-align: center; color: var(--muted); padding: 8px 0 0; font-size: 16px; }
+
+  /* 時間 */
+  .slot-group { grid-column: 1 / -1; font-weight: 700; color: var(--muted); font-size: 16px; margin-top: 6px; }
+  .slots { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .slot {
+    border: 2px solid var(--theme); background: #fff; border-radius: 10px; min-height: 60px; padding: 6px 4px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.25;
+  }
+  .slot .t { font-size: 18px; font-weight: 700; }
+  .slot .s { font-size: 14px; color: var(--theme); font-weight: 700; }
+  .slot.busy, .slot.past { border-color: var(--busy-bg); background: var(--busy-bg); }
+  .slot.busy .t, .slot.past .t { color: var(--busy-text); font-weight: 400; }
+  .slot.busy .s, .slot.past .s { color: var(--busy-text); }
+  .slot.picked { background: var(--pick-soft); border-color: var(--pick); }
+  .slot.picked .s { color: #8A5A00; }
+  .slot.anchor { background: var(--pick); border-color: var(--pick); }
+  .slot.anchor .s { color: #3D2A00; }
+  .time-result {
+    margin-top: 14px; padding: 14px; border-radius: 10px; background: var(--theme-soft);
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .time-result .big { font-size: 21px; font-weight: 700; }
+
+  /* 選択肢ボタン */
+  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .choices.cols-4 { grid-template-columns: repeat(4, 1fr); }
+  .choice {
+    border: 2px solid var(--line); background: #fff; border-radius: 10px; min-height: 52px; padding: 8px 6px;
+    font-size: 17px; font-weight: 700; text-align: center;
+  }
+  .choice[aria-pressed="true"] { border-color: var(--theme); background: var(--theme); color: #fff; }
+  .field { margin-top: 16px; }
+  .field > label, .field > .label { display: block; font-weight: 700; margin-bottom: 6px; }
+  .field .hint { font-size: 15px; color: var(--muted); margin: -2px 0 6px; }
+  .text-input {
+    width: 100%; border: 2px solid var(--line); border-radius: 10px; padding: 12px; font-size: 18px; background: #fff; min-height: 52px;
+  }
+  .text-input:focus { border-color: var(--theme); outline: none; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .chip { border: 1px solid var(--theme); color: var(--theme); background: #fff; border-radius: 999px; padding: 6px 14px; font-size: 16px; }
+
+  .saved-card { border: 2px solid var(--theme-soft); background: #FAFCFB; border-radius: 10px; padding: 12px 14px; }
+  .saved-card .name { font-size: 20px; font-weight: 700; }
+  .link-btn { border: 0; background: none; color: var(--theme); text-decoration: underline; font-weight: 700; padding: 8px 0; font-size: 17px; }
+  .check-row { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; font-size: 17px; }
+  .check-row input { width: 26px; height: 26px; margin-top: 2px; flex: none; accent-color: var(--theme); }
+
+  /* 下部の確定ボタン */
+  .submit-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.97); border-top: 1px solid var(--line);
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); z-index: 10;
+  }
+  .submit-bar .inner { max-width: 560px; margin: 0 auto; }
+  .submit-msg { color: var(--alert); font-weight: 700; font-size: 16px; margin: 0 0 8px; }
+  .btn-primary {
+    width: 100%; border: 0; border-radius: 12px; background: var(--theme); color: #fff; font-size: 20px; font-weight: 700;
+    min-height: 60px; padding: 10px;
+  }
+  .btn-primary:active { background: var(--theme-dark); }
+  .btn-primary:disabled { background: #A9B5AE; }
+  .btn-secondary {
+    width: 100%; border: 2px solid var(--theme); border-radius: 12px; background: #fff; color: var(--theme);
+    font-size: 18px; font-weight: 700; min-height: 54px; padding: 8px; margin-top: 10px;
+  }
+  .btn-small { border: 2px solid var(--theme); background: #fff; color: var(--theme); border-radius: 10px; padding: 6px 12px; font-size: 16px; font-weight: 700; min-height: 44px; }
+  .btn-danger { border: 2px solid var(--alert); background: #fff; color: var(--alert); border-radius: 10px; padding: 8px 12px; font-size: 17px; font-weight: 700; min-height: 48px; width: 100%; margin-top: 10px; }
+
+  /* 確認・完了画面 */
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
+  .sheet {
+    background: #fff; width: 100%; max-width: 560px; max-height: 92vh; overflow-y: auto; border-radius: 18px 18px 0 0;
+    padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+  }
+  .sheet h3 { margin: 0 0 6px; font-size: 22px; }
+  .summary { width: 100%; border-collapse: collapse; margin: 10px 0 6px; }
+  .summary th, .summary td { text-align: left; vertical-align: top; padding: 9px 4px; border-bottom: 1px solid var(--line); }
+  .summary th { width: 6.5em; color: var(--muted); font-weight: 700; font-size: 16px; }
+  .summary td { font-weight: 700; }
+  .summary td.em { font-size: 20px; }
+
+  .full-screen { position: fixed; inset: 0; background: var(--bg); z-index: 30; overflow-y: auto; }
+  .full-screen .inner { max-width: 560px; margin: 0 auto; padding: 32px 16px; }
+  .done-mark {
+    width: 84px; height: 84px; border-radius: 50%; background: var(--theme); color: #fff; font-size: 48px; line-height: 84px;
+    text-align: center; margin: 8px auto 12px;
+  }
+  .center { text-align: center; }
+
+  .loading { position: fixed; inset: 0; background: rgba(246,246,242,0.92); z-index: 40; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; font-size: 20px; font-weight: 700; }
+  .spinner { width: 52px; height: 52px; border: 6px solid var(--theme-soft); border-top-color: var(--theme); border-radius: 50%; animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .error-box { background: var(--alert-soft); color: var(--alert); border-radius: 12px; padding: 16px; margin-top: 16px; font-weight: 700; white-space: pre-line; }
+
+  /* 予約一覧 */
+  .res-card { background: var(--card); border-radius: 14px; margin-top: 14px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+  .res-date { font-size: 20px; font-weight: 700; }
+  .res-time { font-size: 20px; font-weight: 700; color: var(--theme); }
+  .res-meta { color: var(--muted); font-size: 17px; margin-top: 4px; }
+  .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+</style>
+</head>
+<body>
+
+<header class="app-header">第一住宅自治会館の予約</header>
+<nav class="tabs" role="tablist">
+  <button class="tab" role="tab" id="tab-reserve" aria-selected="true">予約する</button>
+  <button class="tab" role="tab" id="tab-list" aria-selected="false">予約の確認・取消</button>
+</nav>
+
+<main>
+  <div id="fatal" class="error-box hidden"></div>
+
+  <!-- ===== 予約する ===== -->
+  <section id="view-reserve">
+    <div class="step" id="step-date">
+      <h2><span class="num">1</span>日にちを選ぶ</h2>
+      <div class="cal-nav">
+        <button id="cal-prev" aria-label="前の月">‹ 前の月</button>
+        <div class="cal-title" id="cal-title"></div>
+        <button id="cal-next" aria-label="次の月">次の月 ›</button>
+      </div>
+      <div class="cal-grid" id="cal-grid"></div>
+      <div class="cal-loading hidden" id="cal-loading">空き状況を読み込み中…</div>
+      <div class="legend">
+        <span><b style="color:var(--theme)">○</b> 空いています</span>
+        <span><b style="color:#B7791F">△</b> 一部空き</span>
+        <span><b style="color:var(--busy-text)">×</b> 満室</span>
+      </div>
+    </div>
+
+    <div class="step hidden" id="step-time">
+      <h2><span class="num">2</span>時間を選ぶ</h2>
+      <p class="guide strong" id="time-guide"></p>
+      <div class="slots" id="slots"></div>
+      <div class="time-result hidden" id="time-result">
+        <div>
+          <div style="font-size:15px;color:var(--muted)" id="time-result-date"></div>
+          <div class="big" id="time-result-text"></div>
+        </div>
+        <button class="btn-small" id="time-reset">選び直す</button>
+      </div>
+    </div>
+
+    <div class="step hidden" id="step-detail">
+      <h2><span class="num">3</span>使い方を入力</h2>
+      <div class="field" style="margin-top:0">
+        <div class="label">使う団体</div>
+        <div class="choices" id="org-choices"></div>
+      </div>
+      <div class="field hidden" id="gaikaku-field">
+        <div class="label">外郭団体の名前</div>
+        <div class="choices" id="gaikaku-choices"></div>
+      </div>
+      <div class="field hidden" id="org-other-field">
+        <label for="org-other">団体の名前</label>
+        <input class="text-input" id="org-other" maxlength="100" placeholder="例：○○サークル">
+      </div>
+      <div class="field">
+        <label for="purpose">何に使いますか</label>
+        <input class="text-input" id="purpose" maxlength="100" placeholder="例：会議、練習">
+        <div class="chips" id="purpose-chips"></div>
+      </div>
+    </div>
+
+    <div class="step hidden" id="step-person">
+      <h2><span class="num">4</span>申し込む人</h2>
+
+      <label class="check-row hidden" id="proxy-row">
+        <input type="checkbox" id="proxy">
+        <span>ほかの方の代わりに申し込む（管理者のみ）</span>
+      </label>
+
+      <div id="applicant-saved" class="saved-card hidden" style="margin-top:8px">
+        <div class="name" id="saved-name"></div>
+        <div id="saved-group"></div>
+        <div id="saved-phone"></div>
+        <button class="link-btn" id="applicant-edit">内容を変更する</button>
+      </div>
+
+      <div id="applicant-form" class="hidden">
+        <div class="field">
+          <label for="ap-name">お名前</label>
+          <input class="text-input" id="ap-name" maxlength="50" autocomplete="name" placeholder="例：自治 太郎">
+        </div>
+        <div class="field">
+          <div class="label">お住まいの区</div>
+          <div class="choices cols-4" id="district-choices"></div>
+        </div>
+        <div class="field hidden" id="class-field">
+          <div class="label">班</div>
+          <div class="choices cols-4" id="class-choices"></div>
+        </div>
+        <div class="field">
+          <label for="ap-phone">電話番号</label>
+          <div class="hint">ハイフン（-）はなくても大丈夫です</div>
+          <input class="text-input" id="ap-phone" type="tel" inputmode="numeric" maxlength="20" autocomplete="tel" placeholder="例：09012345678">
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="label">当日の利用責任者</div>
+        <div class="choices" id="resp-choices">
+          <button class="choice" data-same="true" aria-pressed="true">申し込む人と同じ</button>
+          <button class="choice" data-same="false" aria-pressed="false">別の人</button>
+        </div>
+      </div>
+      <div id="resp-form" class="hidden">
+        <div class="field">
+          <label for="rp-name">利用責任者のお名前</label>
+          <input class="text-input" id="rp-name" maxlength="50">
+        </div>
+        <div class="field">
+          <label for="rp-phone">利用責任者の電話番号</label>
+          <input class="text-input" id="rp-phone" type="tel" inputmode="numeric" maxlength="20">
+        </div>
+        <div class="field">
+          <label for="rp-address">利用責任者のご住所</label>
+          <input class="text-input" id="rp-address" maxlength="100">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 予約の確認・取消 ===== -->
+  <section id="view-list" class="hidden">
+    <div id="list-body"></div>
+  </section>
+</main>
+
+<div class="submit-bar hidden" id="submit-bar">
+  <div class="inner">
+    <p class="submit-msg hidden" id="submit-msg"></p>
+    <button class="btn-primary" id="btn-confirm">入力した内容を確認する</button>
+  </div>
+</div>
+
+<!-- 確認画面 -->
+<div class="overlay hidden" id="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+  <div class="sheet">
+    <h3 id="confirm-title">この内容で予約しますか？</h3>
+    <table class="summary" id="confirm-table"></table>
+    <button class="btn-primary" id="btn-reserve">この内容で予約する</button>
+    <button class="btn-secondary" id="btn-back">戻って直す</button>
+  </div>
+</div>
+
+<!-- 取消の確認 -->
+<div class="overlay hidden" id="cancel-overlay" role="dialog" aria-modal="true" aria-labelledby="cancel-title">
+  <div class="sheet">
+    <h3 id="cancel-title">この予約を取り消しますか？</h3>
+    <table class="summary" id="cancel-table"></table>
+    <button class="btn-primary" id="btn-cancel-yes" style="background:var(--alert)">取り消す</button>
+    <button class="btn-secondary" id="btn-cancel-no">取り消さない</button>
+  </div>
+</div>
+
+<!-- 完了画面 -->
+<div class="full-screen hidden" id="done-screen">
+  <div class="inner">
+    <div class="done-mark" aria-hidden="true">✓</div>
+    <h2 class="center" style="margin:0 0 4px;font-size:24px">予約が完了しました</h2>
+    <p class="center" style="margin:0;color:var(--muted)">LINEのトークにも内容をお送りしました。</p>
+    <table class="summary" id="done-table" style="margin-top:16px"></table>
+    <p style="font-size:17px">当日はスマートロックの暗証番号でご入場ください。</p>
+    <button class="btn-primary" id="btn-close">LINEに戻る</button>
+    <button class="btn-secondary" id="btn-again">続けて予約する</button>
+  </div>
+</div>
+
+<div class="loading hidden" id="loading" role="status" aria-live="polite">
+  <div class="spinner"></div>
+  <div id="loading-text">読み込み中…</div>
+</div>
+
+<script>
+// ===== 設定 =====
+const CONFIG = {
+  // LINE Developers で作成した LIFF アプリの LIFF ID
+  LIFF_ID: '2012181143-f8oPoAMv',
+  // line-bot プロジェクトの Web アプリ URL（検証用デプロイ。本番の Webhook とは別のデプロイID）
+  API_URL: 'https://script.google.com/macros/s/AKfycbwFfW_ZfibEU4D4qhqku5C1pbBjaVyv1kcByzMoZ0hvvWGztgwJFBfuWEL4BYkpduwt/exec',
+};
+
+const DOW = ['日', '月', '火', '水', '木', '金', '土'];
+const $ = id => document.getElementById(id);
+
+const state = {
+  rules: null,        // today, nowTime, maxDate, openingTime, closingTime, slotMinutes
+  config: null,       // apiInit の結果
+  busyByMonth: {},    // 'yyyy-MM' -> { 'yyyy-MM-dd': [{start, end}] }
+  viewMonth: null,    // 'yyyy-MM'
+  date: null,
+  startIdx: null,
+  endIdx: null,
+  timeError: '',
+  org: null,
+  gaikaku: null,
+  editingApplicant: false,
+  district: null,
+  cls: null,
+  isProxy: false,
+  sameAsApplicant: true,
+  listLoaded: false,
+};
+
+// ===== API =====
+async function parseResponse(res) {
+  let json;
+  try { json = await res.json(); } catch (e) { throw new Error('通信に失敗しました。\n電波の良いところで、もう一度お試しください。'); }
+  if (!json.ok) throw new Error(json.message || 'エラーが発生しました。');
+  return json;
+}
+async function apiGet(params) {
+  const res = await fetch(CONFIG.API_URL + '?' + new URLSearchParams(params));
+  return parseResponse(res);
+}
+async function apiPost(body) {
+  const res = await fetch(CONFIG.API_URL, {
+    method: 'POST',
+    // text/plain にすると事前確認（CORSプリフライト）が不要になり、Apps Script で受け取れる
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ ...body, idToken: liff.getIDToken() }),
+  });
+  return parseResponse(res);
+}
+
+// ===== 共通 =====
+function showLoading(text) { $('loading-text').textContent = text || '読み込み中…'; $('loading').classList.remove('hidden'); }
+function hideLoading() { $('loading').classList.add('hidden'); }
+function pad(n) { return String(n).padStart(2, '0'); }
+function toMin(hhmm) { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; }
+function toHHMM(min) { return pad(Math.floor(min / 60)) + ':' + pad(min % 60); }
+function dispTime(hhmm) { return hhmm.replace(/^0/, ''); }
+function dispDate(ymd) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return `${m}月${d}日（${DOW[new Date(y, m - 1, d).getDay()]}）`;
+}
+function dispDuration(min) {
+  const h = Math.floor(min / 60), m = min % 60;
+  return (h ? `${h}時間` : '') + (m ? `${m}分` : '');
+}
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function summaryRows(rows) {
+  return rows.map(([k, v, em]) => `<tr><th>${esc(k)}</th><td class="${em ? 'em' : ''}">${esc(v).replace(/\n/g, '<br>')}</td></tr>`).join('');
+}
+function scrollToEl(el) { setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }
+
+// ===== 時間枠 =====
+function buildSlots() {
+  const { openingTime, closingTime, slotMinutes } = state.rules;
+  const slots = [];
+  for (let t = toMin(openingTime); t + slotMinutes <= toMin(closingTime); t += slotMinutes) {
+    slots.push({ start: toHHMM(t), end: toHHMM(t + slotMinutes) });
+  }
+  return slots;
+}
+function busyFor(date) { return (state.busyByMonth[date.slice(0, 7)] || {})[date] || []; }
+function slotStatus(date, slot) {
+  if (date === state.rules.today && slot.start <= state.rules.nowTime) return 'past';
+  if (busyFor(date).some(b => b.start < slot.end && slot.start < b.end)) return 'busy';
+  return 'free';
+}
+function dayStatus(date) {
+  if (date < state.rules.today || date > state.rules.maxDate) return 'out';
+  const statuses = state.slots.map(s => slotStatus(date, s));
+  const free = statuses.filter(s => s === 'free').length;
+  if (free === 0) return 'full';
+  return statuses.includes('busy') ? 'some' : 'free';
+}
+
+// ===== 1. カレンダー =====
+async function loadMonth(month) {
+  if (state.busyByMonth[month]) return;
+  $('cal-loading').classList.remove('hidden');
+  try {
+    const res = await apiGet({ api: 'availability', month });
+    state.busyByMonth[month] = res.busy;
+  } finally {
+    $('cal-loading').classList.add('hidden');
+  }
+}
+function shiftMonth(month, diff) {
+  const [y, m] = month.split('-').map(Number);
+  const d = new Date(y, m - 1 + diff, 1);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+}
+async function changeMonth(diff) {
+  const next = shiftMonth(state.viewMonth, diff);
+  state.viewMonth = next;
+  renderCalendar();
+  try { await loadMonth(next); } catch (e) { alert(e.message); }
+  renderCalendar();
+}
+function renderCalendar() {
+  const month = state.viewMonth;
+  const [y, m] = month.split('-').map(Number);
+  $('cal-title').textContent = `${y}年${m}月`;
+  $('cal-prev').disabled = month <= state.rules.today.slice(0, 7);
+  $('cal-next').disabled = month >= state.rules.maxDate.slice(0, 7);
+
+  const loaded = Boolean(state.busyByMonth[month]);
+  const first = new Date(y, m - 1, 1).getDay();
+  const days = new Date(y, m, 0).getDate();
+  let html = DOW.map((d, i) => `<div class="cal-dow ${i === 0 ? 'sun' : i === 6 ? 'sat' : ''}">${d}</div>`).join('');
+  for (let i = 0; i < first; i++) html += '<div class="cal-day empty"></div>';
+  for (let d = 1; d <= days; d++) {
+    const date = `${month}-${pad(d)}`;
+    const dow = (first + d - 1) % 7;
+    const status = loaded ? dayStatus(date) : (date < state.rules.today || date > state.rules.maxDate ? 'out' : 'loading');
+    const mark = { free: '○', some: '△', full: '×', out: '', loading: '' }[status];
+    const selectable = status === 'free' || status === 'some';
+    const cls = ['cal-day', status, dow === 0 ? 'sun' : dow === 6 ? 'sat' : '', state.date === date ? 'selected' : ''].join(' ');
+    const label = `${m}月${d}日 ${{ free: '空いています', some: '一部空き', full: '満室', out: '予約できません', loading: '' }[status]}`;
+    html += `<button class="${cls}" data-date="${date}" ${selectable ? '' : 'disabled'} aria-label="${label}"><span class="d">${d}</span><span class="m">${mark}</span></button>`;
+  }
+  $('cal-grid').innerHTML = html;
+}
+function selectDate(date) {
+  state.date = date;
+  resetTime();
+  renderCalendar();
+  renderSlots();
+  $('step-time').classList.remove('hidden');
+  scrollToEl($('step-time'));
+}
+
+// ===== 2. 時間 =====
+function resetTime() { state.startIdx = null; state.endIdx = null; state.timeError = ''; }
+function renderSlots() {
+  const date = state.date;
+  const { startIdx, endIdx } = state;
+  const hasRange = startIdx !== null && endIdx !== null;
+  let html = '';
+  let lastGroup = '';
+  state.slots.forEach((slot, i) => {
+    const h = toMin(slot.start) / 60;
+    const group = h < 12 ? '午前' : h < 18 ? '午後' : '夜';
+    if (group !== lastGroup) { html += `<div class="slot-group">${group}</div>`; lastGroup = group; }
+    const status = slotStatus(date, slot);
+    const inRange = hasRange ? i >= startIdx && i <= endIdx : i === startIdx;
+    const isAnchor = !hasRange && i === startIdx;
+    const sub = status === 'busy' ? '予約あり' : status === 'past' ? '終了' : inRange ? '選択中' : '空き';
+    const cls = ['slot', status !== 'free' ? status : '', inRange ? 'picked' : '', isAnchor ? 'anchor' : ''].join(' ');
+    html += `<button class="${cls}" data-idx="${i}" ${status === 'free' ? '' : 'disabled'} aria-label="${dispTime(slot.start)}から${dispTime(slot.end)} ${sub}">
+      <span class="t">${dispTime(slot.start)}〜${dispTime(slot.end)}</span><span class="s">${sub}</span></button>`;
+  });
+  $('slots').innerHTML = html;
+
+  const guide = $('time-guide');
+  guide.classList.remove('error');
+  if (state.timeError) {
+    guide.textContent = state.timeError;
+    guide.classList.add('error');
+  } else if (startIdx === null) {
+    guide.textContent = '① 使い始める時間を押してください';
+  } else if (!hasRange) {
+    guide.textContent = `② 使い終わる時間を押してください\n（30分だけの場合は、同じ所をもう一度）`;
+  } else {
+    guide.textContent = '時間を選びました。下に進んでください。';
+  }
+  guide.style.whiteSpace = 'pre-line';
+
+  if (hasRange) {
+    const s = state.slots[startIdx].start, e = state.slots[endIdx].end;
+    $('time-result-date').textContent = dispDate(date);
+    $('time-result-text').textContent = `${dispTime(s)} 〜 ${dispTime(e)}（${dispDuration(toMin(e) - toMin(s))}）`;
+    $('time-result').classList.remove('hidden');
+  } else {
+    $('time-result').classList.add('hidden');
+  }
+  updateProgress();
+}
+function tapSlot(i) {
+  const { startIdx, endIdx } = state;
+  state.timeError = '';
+  if (startIdx === null || endIdx !== null || i < startIdx) {
+    // 1回目のタップ（または選び直し）
+    state.startIdx = i;
+    state.endIdx = null;
+  } else {
+    const blocked = state.slots.slice(startIdx, i + 1).some(s => slotStatus(state.date, s) !== 'free');
+    if (blocked) {
+      state.timeError = 'あいだに予約が入っている時間があります。\nもう一度、使い始める時間から選んでください。';
+      resetTimeKeepError();
+    } else {
+      state.endIdx = i;
+    }
+  }
+  renderSlots();
+  if (state.endIdx !== null) {
+    $('step-detail').classList.remove('hidden');
+    $('step-person').classList.remove('hidden');
+    scrollToEl($('time-result'));
+  }
+}
+function resetTimeKeepError() { state.startIdx = null; state.endIdx = null; }
+
+// ===== 3. 使い方 =====
+function renderChoices(container, items, selected, attr) {
+  container.innerHTML = items.map(v =>
+    `<button class="choice" data-${attr}="${esc(v)}" aria-pressed="${v === selected}">${esc(v)}</button>`
+  ).join('');
+}
+function renderDetail() {
+  const c = state.config;
+  renderChoices($('org-choices'), c.organizations, state.org, 'org');
+  renderChoices($('gaikaku-choices'), c.gaikakuOrganizations, state.gaikaku, 'gaikaku');
+  $('gaikaku-field').classList.toggle('hidden', state.org !== '外郭団体');
+  const needsOther = state.org === 'その他団体' || (state.org === '外郭団体' && state.gaikaku === 'その他');
+  $('org-other-field').classList.toggle('hidden', !needsOther);
+  updateProgress();
+}
+function organizationValue() {
+  if (state.org === 'その他団体') return $('org-other').value.trim();
+  if (state.org === '外郭団体') return state.gaikaku === 'その他' ? $('org-other').value.trim() : (state.gaikaku || '');
+  return state.org || '';
+}
+
+// ===== 4. 申し込む人 =====
+function renderPerson() {
+  const saved = state.config.applicant;
+  const showSaved = saved && !state.editingApplicant && !state.isProxy;
+  $('proxy-row').classList.toggle('hidden', !state.config.isAdmin);
+  $('applicant-saved').classList.toggle('hidden', !showSaved);
+  $('applicant-form').classList.toggle('hidden', showSaved);
+  if (showSaved) {
+    $('saved-name').textContent = `${saved.name} 様`;
+    $('saved-group').textContent = saved.group;
+    $('saved-phone').textContent = `電話 ${saved.phone}`;
+  }
+  const districts = Object.keys(state.config.classCounts);
+  renderChoices($('district-choices'), districts.map(d => `${d}区`), state.district ? `${state.district}区` : null, 'district');
+  $('class-field').classList.toggle('hidden', !state.district);
+  if (state.district) {
+    const n = state.config.classCounts[state.district];
+    renderChoices($('class-choices'), Array.from({ length: n }, (_, i) => `${i + 1}班`), state.cls ? `${state.cls}班` : null, 'cls');
+  }
+  document.querySelectorAll('#resp-choices .choice').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.same === 'true') === state.sameAsApplicant)));
+  $('resp-form').classList.toggle('hidden', state.sameAsApplicant);
+  updateProgress();
+}
+function fillApplicantForm(info) {
+  $('ap-name').value = info ? info.name : '';
+  $('ap-phone').value = info ? info.phone : '';
+  const m = info && String(info.group).match(/^(\d+)区(\d+)班$/);
+  state.district = m ? m[1] : null;
+  state.cls = m ? m[2] : null;
+}
+function applicantValue() {
+  const saved = state.config.applicant;
+  if (saved && !state.editingApplicant && !state.isProxy) return { ...saved };
+  return {
+    name: $('ap-name').value.trim(),
+    group: state.district && state.cls ? `${state.district}区${state.cls}班` : '',
+    phone: $('ap-phone').value.trim(),
+  };
+}
+
+// ===== 入力チェックと確定 =====
+function collect() {
+  const hasTime = state.date && state.startIdx !== null && state.endIdx !== null;
+  return {
+    date: state.date,
+    start: hasTime ? state.slots[state.startIdx].start : '',
+    end: hasTime ? state.slots[state.endIdx].end : '',
+    organization: organizationValue(),
+    purpose: $('purpose').value.trim(),
+    applicant: applicantValue(),
+    sameAsApplicant: state.sameAsApplicant,
+    responsible: {
+      name: $('rp-name').value.trim(),
+      phone: $('rp-phone').value.trim(),
+      address: $('rp-address').value.trim(),
+    },
+    isProxy: state.isProxy,
+  };
+}
+function firstProblem(r) {
+  if (!r.date) return ['日にちを選んでください', 'step-date'];
+  if (!r.start) return ['時間を選んでください', 'step-time'];
+  if (!r.organization) return ['使う団体を選んでください', 'step-detail'];
+  if (!r.purpose) return ['何に使うかを入力してください', 'purpose'];
+  if (!r.applicant.name) return ['お名前を入力してください', 'ap-name'];
+  if (!r.applicant.group) return ['区と班を選んでください', 'district-choices'];
+  if (!/^\d{10,11}$/.test(r.applicant.phone.replace(/[-ー－\s]/g, ''))) return ['電話番号を確かめてください（10桁か11桁）', 'ap-phone'];
+  if (!r.sameAsApplicant) {
+    if (!r.responsible.name) return ['利用責任者のお名前を入力してください', 'rp-name'];
+    if (!/^\d{10,11}$/.test(r.responsible.phone.replace(/[-ー－\s]/g, ''))) return ['利用責任者の電話番号を確かめてください', 'rp-phone'];
+    if (!r.responsible.address) return ['利用責任者のご住所を入力してください', 'rp-address'];
+  }
+  return null;
+}
+function updateProgress() {
+  const visible = state.endIdx !== null;
+  $('submit-bar').classList.toggle('hidden', !visible || currentTab() !== 'reserve');
+  $('submit-msg').classList.add('hidden');
+}
+function reservationRows(r) {
+  return [
+    ['日にち', dispDate(r.date), true],
+    ['時間', `${dispTime(r.start)} 〜 ${dispTime(r.end)}`, true],
+    ['団体', r.organization],
+    ['使い方', r.purpose],
+    ['申し込む人', `${r.applicant.name} 様\n${r.applicant.group}\n電話 ${r.applicant.phone}`],
+    ['利用責任者', r.sameAsApplicant ? '申し込む人と同じ' : `${r.responsible.name} 様\n電話 ${r.responsible.phone}\n${r.responsible.address}`],
+  ];
+}
+function openConfirm() {
+  const r = collect();
+  const problem = firstProblem(r);
+  if (problem) {
+    $('submit-msg').textContent = problem[0];
+    $('submit-msg').classList.remove('hidden');
+    const el = $(problem[1]);
+    scrollToEl(el.closest('.field') || el);
+    if (el.tagName === 'INPUT') setTimeout(() => el.focus(), 400);
+    return;
+  }
+  $('confirm-table').innerHTML = summaryRows(reservationRows(r));
+  $('confirm-overlay').classList.remove('hidden');
+}
+async function submitReservation() {
+  const r = collect();
+  $('confirm-overlay').classList.add('hidden');
+  showLoading('予約しています…');
+  try {
+    await apiPost({ api: 'reserve', reservation: r });
+    $('done-table').innerHTML = summaryRows(reservationRows(r).slice(0, 4));
+    $('done-screen').classList.remove('hidden');
+    delete state.busyByMonth[r.date.slice(0, 7)];
+    state.listLoaded = false;
+    if (!state.isProxy) state.config.applicant = { ...r.applicant };
+  } catch (e) {
+    alert(e.message);
+    // 予約が埋まった可能性があるため、空き状況を読み直す
+    delete state.busyByMonth[r.date.slice(0, 7)];
+    await loadMonth(r.date.slice(0, 7)).catch(() => {});
+    resetTime();
+    renderCalendar();
+    renderSlots();
+    scrollToEl($('step-time'));
+  } finally {
+    hideLoading();
+  }
+}
+async function startOver() {
+  $('done-screen').classList.add('hidden');
+  state.date = null; resetTime(); state.org = null; state.gaikaku = null;
+  state.editingApplicant = false; state.isProxy = false; $('proxy').checked = false; state.sameAsApplicant = true;
+  ['org-other', 'purpose', 'rp-name', 'rp-phone', 'rp-address'].forEach(id => { $(id).value = ''; });
+  fillApplicantForm(state.config.applicant);
+  ['step-time', 'step-detail', 'step-person'].forEach(id => $(id).classList.add('hidden'));
+  showLoading();
+  try { await loadMonth(state.viewMonth); } catch (e) { alert(e.message); } finally { hideLoading(); }
+  renderCalendar(); renderDetail(); renderPerson(); updateProgress();
+  window.scrollTo(0, 0);
+}
+
+// ===== 予約の確認・取消 =====
+let cancelTarget = null;
+async function loadList() {
+  const body = $('list-body');
+  body.innerHTML = '<div class="empty">読み込み中…</div>';
+  try {
+    const res = await apiPost({ api: 'myReservations' });
+    state.listLoaded = true;
+    if (!res.reservations.length) {
+      body.innerHTML = '<div class="empty">これからのご予約はありません。</div>';
+      return;
+    }
+    const note = res.isAdmin ? '<p class="guide" style="margin-top:16px">管理者のため、全員の予約を表示しています。</p>' : '';
+    body.innerHTML = note + res.reservations.map(r => `
+      <div class="res-card">
+        <div class="res-date">${esc(dispDate(r.date))}</div>
+        <div class="res-time">${esc(dispTime(r.start))} 〜 ${esc(dispTime(r.end))}</div>
+        <div class="res-meta">${esc(r.organization)}／${esc(r.purpose)}</div>
+        ${res.isAdmin ? `<div class="res-meta">申し込み：${esc(r.applicantName)} 様</div>` : ''}
+        <button class="btn-danger" data-cancel='${esc(JSON.stringify(r))}'>この予約を取り消す</button>
+      </div>`).join('');
+  } catch (e) {
+    body.innerHTML = `<div class="error-box">${esc(e.message)}</div>`;
+  }
+}
+function openCancel(r) {
+  cancelTarget = r;
+  $('cancel-table').innerHTML = summaryRows([
+    ['日にち', dispDate(r.date), true],
+    ['時間', `${dispTime(r.start)} 〜 ${dispTime(r.end)}`, true],
+    ['団体', r.organization],
+    ['使い方', r.purpose],
+  ]);
+  $('cancel-overlay').classList.remove('hidden');
+}
+async function doCancel() {
+  $('cancel-overlay').classList.add('hidden');
+  showLoading('取り消しています…');
+  try {
+    await apiPost({ api: 'cancel', reservationId: cancelTarget.id });
+    delete state.busyByMonth[cancelTarget.date.slice(0, 7)];
+    alert('予約を取り消しました。');
+    await loadList();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    hideLoading();
+  }
+}
+
+// ===== タブ =====
+function currentTab() { return $('tab-list').getAttribute('aria-selected') === 'true' ? 'list' : 'reserve'; }
+async function switchTab(tab) {
+  $('tab-reserve').setAttribute('aria-selected', String(tab === 'reserve'));
+  $('tab-list').setAttribute('aria-selected', String(tab === 'list'));
+  $('view-reserve').classList.toggle('hidden', tab !== 'reserve');
+  $('view-list').classList.toggle('hidden', tab !== 'list');
+  updateProgress();
+  window.scrollTo(0, 0);
+  if (tab === 'list' && !state.listLoaded) await loadList();
+  if (tab === 'reserve' && !state.busyByMonth[state.viewMonth]) {
+    try { await loadMonth(state.viewMonth); } catch (e) { alert(e.message); }
+    renderCalendar();
+    if (state.date) renderSlots();
+  }
+}
+
+// ===== イベント =====
+function bindEvents() {
+  $('tab-reserve').onclick = () => switchTab('reserve');
+  $('tab-list').onclick = () => switchTab('list');
+  $('cal-prev').onclick = () => changeMonth(-1);
+  $('cal-next').onclick = () => changeMonth(1);
+  $('cal-grid').onclick = e => { const b = e.target.closest('[data-date]'); if (b && !b.disabled) selectDate(b.dataset.date); };
+  $('slots').onclick = e => { const b = e.target.closest('[data-idx]'); if (b && !b.disabled) tapSlot(Number(b.dataset.idx)); };
+  $('time-reset').onclick = () => { resetTime(); renderSlots(); scrollToEl($('step-time')); };
+
+  $('org-choices').onclick = e => {
+    const b = e.target.closest('[data-org]'); if (!b) return;
+    state.org = b.dataset.org; state.gaikaku = null; renderDetail();
+    if (state.org === 'その他団体') $('org-other').focus();
+  };
+  $('gaikaku-choices').onclick = e => {
+    const b = e.target.closest('[data-gaikaku]'); if (!b) return;
+    state.gaikaku = b.dataset.gaikaku; renderDetail();
+    if (state.gaikaku === 'その他') $('org-other').focus();
+  };
+  $('purpose-chips').innerHTML = state.config.purposeSuggestions.map(p => `<button class="chip" data-purpose="${esc(p)}">${esc(p)}</button>`).join('');
+  $('purpose-chips').onclick = e => { const b = e.target.closest('[data-purpose]'); if (b) { $('purpose').value = b.dataset.purpose; updateProgress(); } };
+
+  $('applicant-edit').onclick = () => { state.editingApplicant = true; fillApplicantForm(state.config.applicant); renderPerson(); };
+  $('proxy').onchange = e => {
+    state.isProxy = e.target.checked;
+    fillApplicantForm(state.isProxy ? null : state.config.applicant);
+    renderPerson();
+  };
+  $('district-choices').onclick = e => { const b = e.target.closest('[data-district]'); if (!b) return; state.district = b.dataset.district.replace('区', ''); state.cls = null; renderPerson(); };
+  $('class-choices').onclick = e => { const b = e.target.closest('[data-cls]'); if (!b) return; state.cls = b.dataset.cls.replace('班', ''); renderPerson(); };
+  $('resp-choices').onclick = e => { const b = e.target.closest('[data-same]'); if (!b) return; state.sameAsApplicant = b.dataset.same === 'true'; renderPerson(); };
+
+  $('btn-confirm').onclick = openConfirm;
+  $('btn-back').onclick = () => $('confirm-overlay').classList.add('hidden');
+  $('btn-reserve').onclick = submitReservation;
+  $('btn-close').onclick = () => { if (liff.isInClient()) liff.closeWindow(); else startOver(); };
+  $('btn-again').onclick = startOver;
+
+  $('list-body').onclick = e => { const b = e.target.closest('[data-cancel]'); if (b) openCancel(JSON.parse(b.dataset.cancel)); };
+  $('btn-cancel-no').onclick = () => $('cancel-overlay').classList.add('hidden');
+  $('btn-cancel-yes').onclick = doCancel;
+}
+
+// ===== 起動 =====
+async function main() {
+  showLoading();
+  try {
+    await liff.init({ liffId: CONFIG.LIFF_ID });
+    if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+
+    const config = await apiPost({ api: 'init' });
+    state.config = config;
+    state.rules = config;
+    state.slots = buildSlots();
+    state.viewMonth = config.today.slice(0, 7);
+    fillApplicantForm(config.applicant);
+
+    bindEvents();
+    const tab = new URLSearchParams(location.search).get('tab') === 'list' ? 'list' : 'reserve';
+    if (tab === 'reserve') await loadMonth(state.viewMonth);
+    renderCalendar();
+    renderDetail();
+    renderPerson();
+    await switchTab(tab);
+  } catch (e) {
+    $('fatal').textContent = e.message || 'エラーが発生しました。画面を閉じて、もう一度開いてください。';
+    $('fatal').classList.remove('hidden');
+    $('view-reserve').classList.add('hidden');
+  } finally {
+    hideLoading();
+  }
+}
+main();
+</script>
+</body>
+</html>

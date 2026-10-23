@@ -117,10 +117,15 @@
   .slot.busy, .slot.past { border-color: var(--busy-bg); background: var(--busy-bg); }
   .slot.busy .t, .slot.past .t { color: var(--busy-text); font-weight: 400; }
   .slot.busy .s, .slot.past .s { color: var(--busy-text); }
-  .slot.picked { background: var(--pick-soft); border-color: var(--pick); }
-  .slot.picked .s { color: #8A5A00; }
-  .slot.anchor { background: var(--pick); border-color: var(--pick); }
-  .slot.anchor .s { color: #3D2A00; }
+  .slot.picked { background: var(--pick); border-color: var(--pick); }
+  .slot.picked .s { color: #3D2A00; }
+  .slot.addable { border-style: dashed; background: var(--theme-soft); }
+  .slot.far { opacity: 0.5; }
+  .toast {
+    position: fixed; left: 16px; right: 16px; bottom: calc(150px + env(safe-area-inset-bottom)); z-index: 15;
+    max-width: 528px; margin: 0 auto; background: #2B2B2B; color: #fff; border-radius: 12px; padding: 14px 16px;
+    font-size: 17px; font-weight: 700; white-space: pre-line; box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  }
   .time-result {
     margin-top: 14px; padding: 14px; border-radius: 10px; background: var(--theme-soft);
     display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
@@ -374,6 +379,8 @@
   </div>
 </div>
 
+<div class="toast hidden" id="toast" role="alert"></div>
+
 <div class="loading hidden" id="loading" role="status" aria-live="polite">
   <div class="spinner"></div>
   <div id="loading-text">読み込み中…</div>
@@ -397,9 +404,8 @@ const state = {
   busyByMonth: {},    // 'yyyy-MM' -> { 'yyyy-MM-dd': [{start, end}] }
   viewMonth: null,    // 'yyyy-MM'
   date: null,
-  startIdx: null,
+  startIdx: null,     // 選択中の最初の枠（選んだ枠は常に startIdx〜endIdx の連続した範囲）
   endIdx: null,
-  timeError: '',
   org: null,
   gaikaku: null,
   editingApplicant: false,
@@ -453,6 +459,13 @@ function summaryRows(rows) {
   return rows.map(([k, v, em]) => `<tr><th>${esc(k)}</th><td class="${em ? 'em' : ''}">${esc(v).replace(/\n/g, '<br>')}</td></tr>`).join('');
 }
 function scrollToEl(el) { setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }
+let toastTimer = null;
+function showToast(text) {
+  $('toast').textContent = text;
+  $('toast').classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $('toast').classList.add('hidden'), 4000);
+}
 
 // ===== 時間枠 =====
 function buildSlots() {
@@ -534,11 +547,11 @@ function selectDate(date) {
 }
 
 // ===== 2. 時間 =====
-function resetTime() { state.startIdx = null; state.endIdx = null; state.timeError = ''; }
+function resetTime() { state.startIdx = null; state.endIdx = null; }
 function renderSlots() {
   const date = state.date;
   const { startIdx, endIdx } = state;
-  const hasRange = startIdx !== null && endIdx !== null;
+  const hasRange = startIdx !== null;
   let html = '';
   let lastGroup = '';
   state.slots.forEach((slot, i) => {
@@ -546,28 +559,20 @@ function renderSlots() {
     const group = h < 12 ? '午前' : h < 18 ? '午後' : '夜';
     if (group !== lastGroup) { html += `<div class="slot-group">${group}</div>`; lastGroup = group; }
     const status = slotStatus(date, slot);
-    const inRange = hasRange ? i >= startIdx && i <= endIdx : i === startIdx;
-    const isAnchor = !hasRange && i === startIdx;
-    const sub = status === 'busy' ? '予約あり' : status === 'past' ? '終了' : inRange ? '選択中' : '空き';
-    const cls = ['slot', status !== 'free' ? status : '', inRange ? 'picked' : '', isAnchor ? 'anchor' : ''].join(' ');
-    html += `<button class="${cls}" data-idx="${i}" ${status === 'free' ? '' : 'disabled'} aria-label="${dispTime(slot.start)}から${dispTime(slot.end)} ${sub}">
+    const picked = hasRange && i >= startIdx && i <= endIdx;
+    const addable = hasRange && status === 'free' && (i === startIdx - 1 || i === endIdx + 1);
+    const far = hasRange && status === 'free' && !picked && !addable;
+    const sub = status === 'busy' ? '予約あり' : status === 'past' ? '終了' : picked ? '選択中' : addable ? '＋のばす' : '空き';
+    const cls = ['slot', status !== 'free' ? status : '', picked ? 'picked' : '', addable ? 'addable' : '', far ? 'far' : ''].join(' ');
+    html += `<button class="${cls}" data-idx="${i}" ${status === 'free' ? '' : 'disabled'} aria-pressed="${picked}" aria-label="${dispTime(slot.start)}から${dispTime(slot.end)} ${sub}">
       <span class="t">${dispTime(slot.start)}〜${dispTime(slot.end)}</span><span class="s">${sub}</span></button>`;
   });
   $('slots').innerHTML = html;
 
-  const guide = $('time-guide');
-  guide.classList.remove('error');
-  if (state.timeError) {
-    guide.textContent = state.timeError;
-    guide.classList.add('error');
-  } else if (startIdx === null) {
-    guide.textContent = '① 使い始める時間を押してください';
-  } else if (!hasRange) {
-    guide.textContent = `② 使い終わる時間を押してください\n（30分だけの場合は、同じ所をもう一度）`;
-  } else {
-    guide.textContent = '時間を選びました。下に進んでください。';
-  }
-  guide.style.whiteSpace = 'pre-line';
+  $('time-guide').textContent = hasRange
+    ? '時間をのばすときは「＋のばす」を押してください。\nはしの時間を押すと外せます。'
+    : '使いたい時間を押してください（30分ごと）。\n続けて使うときは、となりの時間も押してください。';
+  $('time-guide').style.whiteSpace = 'pre-line';
 
   if (hasRange) {
     const s = state.slots[startIdx].start, e = state.slots[endIdx].end;
@@ -579,30 +584,39 @@ function renderSlots() {
   }
   updateProgress();
 }
+/**
+ * 時間枠を押したときの処理。選んだ枠が必ず連続するよう、
+ * 何も選んでいなければ新しく選び、選んでいれば「となりを足す」か「はしを外す」だけを受け付ける。
+ */
 function tapSlot(i) {
-  const { startIdx, endIdx } = state;
-  state.timeError = '';
-  if (startIdx === null || endIdx !== null || i < startIdx) {
-    // 1回目のタップ（または選び直し）
+  const { startIdx: s, endIdx: e } = state;
+  const isFirst = s === null;
+  if (isFirst) {
+    state.startIdx = state.endIdx = i;
+  } else if (i === s - 1) {
     state.startIdx = i;
-    state.endIdx = null;
+  } else if (i === e + 1) {
+    state.endIdx = i;
+  } else if (i === s && i === e) {
+    resetTime();
+  } else if (i === s) {
+    state.startIdx = s + 1;
+  } else if (i === e) {
+    state.endIdx = e - 1;
+  } else if (i > s && i < e) {
+    showToast('まん中の時間は外せません。\n外すときは、はしの時間から押してください。');
+    return;
   } else {
-    const blocked = state.slots.slice(startIdx, i + 1).some(s => slotStatus(state.date, s) !== 'free');
-    if (blocked) {
-      state.timeError = 'あいだに予約が入っている時間があります。\nもう一度、使い始める時間から選んでください。';
-      resetTimeKeepError();
-    } else {
-      state.endIdx = i;
-    }
+    showToast('続いた時間だけ選べます。\n離れた時間にするときは「選び直す」を押してください。');
+    return;
   }
+  $('toast').classList.add('hidden');
   renderSlots();
-  if (state.endIdx !== null) {
+  if (isFirst) {
     $('step-detail').classList.remove('hidden');
     $('step-person').classList.remove('hidden');
-    scrollToEl($('time-result'));
   }
 }
-function resetTimeKeepError() { state.startIdx = null; state.endIdx = null; }
 
 // ===== 3. 使い方 =====
 function renderChoices(container, items, selected, attr) {

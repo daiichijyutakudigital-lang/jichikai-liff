@@ -9,6 +9,9 @@
   GitHub Pages（main ブランチの /docs）で公開し、LINE Developers の LIFF エンドポイントURLに設定します。
   データの読み書きは Google Apps Script（line-bot プロジェクト）の Web アプリに対して行います。
 -->
+<!-- 予約データを返す GAS のサーバーへの接続を、ページの読み込み中から始めておく -->
+<link rel="preconnect" href="https://script.google.com">
+<link rel="preconnect" href="https://script.googleusercontent.com">
 <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <style>
   :root {
@@ -1170,10 +1173,22 @@ async function main() {
   }
   showLoading();
   try {
+    const requested = new URLSearchParams(location.search).get('tab');
+    const tab = TABS.includes(requested) ? requested : 'reserve';
+    // 開いたタブに必要なデータは、初期情報の問い合わせを待たずに同時に取りに行く（GAS の応答待ちを1回分にするため）
+    const thisMonth = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date()).slice(0, 7);
+    const preloads = [];
+    if (tab === 'reserve') preloads.push(loadMonth(thisMonth).catch(() => {}));  // 空き状況はログイン不要なので最初に
+
     await liff.init({ liffId: CONFIG.LIFF_ID });
     if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
 
-    const config = await apiPost({ api: 'init' });
+    const configPromise = apiPost({ api: 'init' });
+    if (tab === 'calendar') preloads.push(loadVcMonth(thisMonth).catch(() => {}));
+    if (tab === 'list') preloads.push(loadList());
+    const config = await configPromise;
+    await Promise.all(preloads);
+
     state.config = config;
     state.rules = config;
     state.slots = buildSlots();
@@ -1182,9 +1197,7 @@ async function main() {
     fillApplicantForm(config.applicant);
 
     bindEvents();
-    const requested = new URLSearchParams(location.search).get('tab');
-    const tab = TABS.includes(requested) ? requested : 'reserve';
-    if (tab === 'reserve') await loadMonth(state.viewMonth);
+    if (tab === 'reserve') await loadMonth(state.viewMonth);  // 端末の時計がずれていて月が違ったときだけ読み直す
     renderCalendar();
     renderDetail();
     renderPerson();

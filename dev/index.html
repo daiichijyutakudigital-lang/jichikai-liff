@@ -210,6 +210,14 @@
   .res-meta { color: var(--muted); font-size: 17px; margin-top: 4px; }
   .empty { text-align: center; color: var(--muted); padding: 40px 0; }
 
+  /* 予約の変更中に出す帯 */
+  .modify-banner {
+    margin-top: 16px; background: var(--pick-soft); border: 2px solid var(--pick); border-radius: 12px; padding: 12px 14px;
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between;
+  }
+  .modify-banner b { font-size: 18px; }
+  .btn-modify { border: 2px solid var(--theme); background: #fff; color: var(--theme); border-radius: 10px; padding: 8px 12px; font-size: 17px; font-weight: 700; min-height: 48px; width: 100%; margin-top: 10px; }
+
   /* 空きカレンダー */
   .cal-day.vc { cursor: pointer; }
   .cal-day.vc-none .m { color: var(--theme); }
@@ -238,6 +246,10 @@
 
   <!-- ===== 予約する ===== -->
   <section id="view-reserve">
+    <div class="modify-banner hidden" id="modify-banner" role="status">
+      <div><b>予約を変更しています</b><div id="modify-banner-text"></div></div>
+      <button class="btn-small" id="modify-cancel">変更をやめる</button>
+    </div>
     <div class="step" id="step-date">
       <h2><span class="num">1</span>日にちを選ぶ</h2>
       <div class="cal-nav">
@@ -408,7 +420,7 @@
 <div class="full-screen hidden" id="done-screen">
   <div class="inner">
     <div class="done-mark" aria-hidden="true">✓</div>
-    <h2 class="center" style="margin:0 0 4px;font-size:24px">予約が完了しました</h2>
+    <h2 class="center" id="done-title" style="margin:0 0 4px;font-size:24px">予約が完了しました</h2>
     <p class="center" style="margin:0;color:var(--muted)">LINEのトークにも内容をお送りしました。</p>
     <table class="summary" id="done-table" style="margin-top:16px"></table>
     <p style="font-size:17px">当日はスマートロックの暗証番号でご入場ください。</p>
@@ -467,6 +479,7 @@ const state = {
   calByMonth: {},     // 空きカレンダー: 'yyyy-MM' -> [{date, start, end, organization}]
   vcMonth: null,
   vcDate: null,
+  modifying: null,    // 変更中の予約（自分の予約の一覧から渡されたもの）。新規予約のときは null
 };
 
 // ===== API =====
@@ -530,9 +543,14 @@ function buildSlots() {
   return slots;
 }
 function busyFor(date) { return (state.busyByMonth[date.slice(0, 7)] || {})[date] || []; }
+// 変更中は、元の予約の時間を「予約あり」ではなく空きとして扱う（のばす・ずらすができるように）
+function isOriginalOfModifying(date, b) {
+  const m = state.modifying;
+  return Boolean(m) && m.date === date && m.start === b.start && m.end === b.end;
+}
 function slotStatus(date, slot) {
   if (date === state.rules.today && slot.start <= state.rules.nowTime) return 'past';
-  if (busyFor(date).some(b => b.start < slot.end && slot.start < b.end)) return 'busy';
+  if (busyFor(date).some(b => !isOriginalOfModifying(date, b) && b.start < slot.end && slot.start < b.end)) return 'busy';
   return 'free';
 }
 function dayStatus(date) {
@@ -694,15 +712,17 @@ function organizationValue() {
 
 // ===== 4. 申し込む人 =====
 function renderPerson() {
-  const saved = state.config.applicant;
-  const showSaved = saved && !state.editingApplicant && !state.isProxy;
-  $('proxy-row').classList.toggle('hidden', !state.config.isAdmin);
+  const m = state.modifying;
+  const saved = m ? { name: m.applicantName, group: m.applicantGroup, phone: '' } : state.config.applicant;
+  const showSaved = Boolean(m) || (saved && !state.editingApplicant && !state.isProxy);
+  $('proxy-row').classList.toggle('hidden', !state.config.isAdmin || Boolean(m));
   $('applicant-saved').classList.toggle('hidden', !showSaved);
   $('applicant-form').classList.toggle('hidden', showSaved);
+  $('applicant-edit').classList.toggle('hidden', Boolean(m));
   if (showSaved) {
     $('saved-name').textContent = `${saved.name} 様`;
-    $('saved-group').textContent = saved.group;
-    $('saved-phone').textContent = `電話 ${saved.phone}`;
+    $('saved-group').textContent = m ? `${saved.group}（申し込む人は変更できません）` : saved.group;
+    $('saved-phone').textContent = saved.phone ? `電話 ${saved.phone}` : '';
   }
   const districts = Object.keys(state.config.classCounts);
   renderChoices($('district-choices'), districts.map(d => `${d}区`), state.district ? `${state.district}区` : null, 'district');
@@ -723,6 +743,8 @@ function fillApplicantForm(info) {
   state.cls = m ? m[2] : null;
 }
 function applicantValue() {
+  const m = state.modifying;
+  if (m) return { name: m.applicantName, group: m.applicantGroup, phone: '' };
   const saved = state.config.applicant;
   if (saved && !state.editingApplicant && !state.isProxy) return { ...saved };
   return {
@@ -756,9 +778,11 @@ function firstProblem(r) {
   if (!r.start) return ['時間を選んでください', 'step-time'];
   if (!r.organization) return ['使う団体を選んでください', 'step-detail'];
   if (!r.purpose) return ['何に使うかを入力してください', 'purpose'];
-  if (!r.applicant.name) return ['お名前を入力してください', 'ap-name'];
-  if (!r.applicant.group) return ['区と班を選んでください', 'district-choices'];
-  if (!/^\d{10,11}$/.test(r.applicant.phone.replace(/[-ー－\s]/g, ''))) return ['電話番号を確かめてください（10桁か11桁）', 'ap-phone'];
+  if (!state.modifying) {
+    if (!r.applicant.name) return ['お名前を入力してください', 'ap-name'];
+    if (!r.applicant.group) return ['区と班を選んでください', 'district-choices'];
+    if (!/^\d{10,11}$/.test(r.applicant.phone.replace(/[-ー－\s]/g, ''))) return ['電話番号を確かめてください（10桁か11桁）', 'ap-phone'];
+  }
   if (!r.sameAsApplicant) {
     if (!r.responsible.name) return ['利用責任者のお名前を入力してください', 'rp-name'];
     if (!/^\d{10,11}$/.test(r.responsible.phone.replace(/[-ー－\s]/g, ''))) return ['利用責任者の電話番号を確かめてください', 'rp-phone'];
@@ -777,7 +801,7 @@ function reservationRows(r) {
     ['時間', `${dispTime(r.start)} 〜 ${dispTime(r.end)}`, true],
     ['団体', r.organization],
     ['使い方', r.purpose],
-    ['申し込む人', `${r.applicant.name} 様\n${r.applicant.group}\n電話 ${r.applicant.phone}`],
+    ['申し込む人', `${r.applicant.name} 様\n${r.applicant.group}${r.applicant.phone ? `\n電話 ${r.applicant.phone}` : ''}`],
     ['利用責任者', r.sameAsApplicant ? '申し込む人と同じ' : `${r.responsible.name} 様\n電話 ${r.responsible.phone}\n${r.responsible.address}`],
   ];
 }
@@ -792,21 +816,34 @@ function openConfirm() {
     if (el.tagName === 'INPUT') setTimeout(() => el.focus(), 400);
     return;
   }
-  $('confirm-table').innerHTML = summaryRows(reservationRows(r));
+  $('confirm-table').innerHTML = summaryRows([...modifyingRows(), ...reservationRows(r)]);
   $('confirm-overlay').classList.remove('hidden');
+}
+// 変更中は、確認画面と完了画面の先頭に「変更前」の行を出す
+function modifyingRows() {
+  const m = state.modifying;
+  return m ? [['変更前', `${dispDate(m.date)}\n${dispTime(m.start)} 〜 ${dispTime(m.end)}（${m.organization}）`]] : [];
 }
 async function submitReservation() {
   const r = collect();
+  const m = state.modifying;
   $('confirm-overlay').classList.add('hidden');
-  showLoading('予約しています…');
+  showLoading(m ? '変更しています…' : '予約しています…');
   try {
-    await apiPost({ api: 'reserve', reservation: r });
-    $('done-table').innerHTML = summaryRows(reservationRows(r).slice(0, 4));
+    if (m) {
+      await apiPost({ api: 'modify', reservationId: m.id, reservation: r });
+    } else {
+      await apiPost({ api: 'reserve', reservation: r });
+    }
+    $('done-title').textContent = m ? '予約を変更しました' : '予約が完了しました';
+    $('done-table').innerHTML = summaryRows([...modifyingRows(), ...reservationRows(r).slice(0, 4)]);
     $('done-screen').classList.remove('hidden');
-    delete state.busyByMonth[r.date.slice(0, 7)];
-    delete state.calByMonth[r.date.slice(0, 7)];
+    [r.date, m && m.date].filter(Boolean).forEach(d => {
+      delete state.busyByMonth[d.slice(0, 7)];
+      delete state.calByMonth[d.slice(0, 7)];
+    });
     state.listLoaded = false;
-    if (!state.isProxy) state.config.applicant = { ...r.applicant };
+    if (!m && !state.isProxy) state.config.applicant = { ...r.applicant };
   } catch (e) {
     alert(e.message);
     // 予約が埋まった可能性があるため、空き状況を読み直す
@@ -820,13 +857,73 @@ async function submitReservation() {
     hideLoading();
   }
 }
-async function startOver() {
-  $('done-screen').classList.add('hidden');
+// 予約タブの入力をすべて空に戻し、新規予約の状態にする
+function resetReserveForm() {
+  state.modifying = null;
   state.date = null; resetTime(); state.org = null; state.gaikaku = null;
   state.editingApplicant = false; state.isProxy = false; $('proxy').checked = false; state.sameAsApplicant = true;
   ['org-other', 'purpose', 'rp-name', 'rp-phone', 'rp-address'].forEach(id => { $(id).value = ''; });
   fillApplicantForm(state.config.applicant);
   ['step-time', 'step-detail', 'step-person'].forEach(id => $(id).classList.add('hidden'));
+  // 隠した時間の欄に、前回選んだ時間の表示が残らないようにする
+  $('slots').innerHTML = '';
+  $('time-result').classList.add('hidden');
+  renderModifyMode();
+}
+// 変更中かどうかで、帯・確認画面の見出し・ボタンの文言を切り替える
+function renderModifyMode() {
+  const m = state.modifying;
+  $('modify-banner').classList.toggle('hidden', !m);
+  if (m) $('modify-banner-text').textContent = `${dispDate(m.date)} ${dispTime(m.start)}〜${dispTime(m.end)}（${m.organization}）`;
+  $('confirm-title').textContent = m ? 'この内容に変更しますか？' : 'この内容で予約しますか？';
+  $('btn-reserve').textContent = m ? 'この内容に変更する' : 'この内容で予約する';
+}
+/**
+ * 自分の予約の「変更する」から呼ばれる。予約タブを、今の内容が入った変更モードで開く。
+ */
+async function startModify(r) {
+  resetReserveForm();
+  state.modifying = r;
+  state.viewMonth = r.date.slice(0, 7);
+  await switchTab('reserve');
+  showLoading();
+  try { await loadMonth(state.viewMonth); } catch (e) { alert(e.message); } finally { hideLoading(); }
+
+  state.date = r.date;
+  state.startIdx = state.slots.findIndex(s => s.start === r.start);
+  state.endIdx = state.slots.findIndex(s => s.end === r.end);
+  if (state.startIdx < 0 || state.endIdx < 0) resetTime();
+
+  const c = state.config;
+  if (c.organizations.includes(r.organization) && !['外郭団体', 'その他団体'].includes(r.organization)) {
+    state.org = r.organization;
+  } else if (c.gaikakuOrganizations.includes(r.organization) && r.organization !== 'その他') {
+    state.org = '外郭団体';
+    state.gaikaku = r.organization;
+  } else {
+    state.org = 'その他団体';
+    $('org-other').value = r.organization;
+  }
+  $('purpose').value = r.purpose;
+  state.sameAsApplicant = r.sameAsApplicant;
+  if (r.responsible) {
+    $('rp-name').value = r.responsible.name;
+    $('rp-phone').value = r.responsible.phone;
+    $('rp-address').value = r.responsible.address;
+  }
+
+  ['step-time', 'step-detail', 'step-person'].forEach(id => $(id).classList.remove('hidden'));
+  renderModifyMode();
+  renderCalendar(); renderSlots(); renderDetail(); renderPerson();
+  window.scrollTo(0, 0);
+}
+async function stopModify() {
+  await startOver();
+  await switchTab('list');
+}
+async function startOver() {
+  $('done-screen').classList.add('hidden');
+  resetReserveForm();
   showLoading();
   try { await loadMonth(state.viewMonth); } catch (e) { alert(e.message); } finally { hideLoading(); }
   renderCalendar(); renderDetail(); renderPerson(); updateProgress();
@@ -852,6 +949,7 @@ async function loadList() {
         <div class="res-time">${esc(dispTime(r.start))} 〜 ${esc(dispTime(r.end))}</div>
         <div class="res-meta">${esc(r.organization)}／${esc(r.purpose)}</div>
         ${res.isAdmin ? `<div class="res-meta">申し込み：${esc(r.applicantName)} 様</div>` : ''}
+        ${r.canModify ? `<button class="btn-modify" data-modify='${esc(JSON.stringify(r))}'>この予約を変更する</button>` : ''}
         <button class="btn-danger" data-cancel='${esc(JSON.stringify(r))}'>この予約を取り消す</button>
       </div>`).join('');
   } catch (e) {
@@ -1051,7 +1149,13 @@ function bindEvents() {
   $('btn-close').onclick = () => { if (liff.isInClient()) liff.closeWindow(); else startOver(); };
   $('btn-again').onclick = startOver;
 
-  $('list-body').onclick = e => { const b = e.target.closest('[data-cancel]'); if (b) openCancel(JSON.parse(b.dataset.cancel)); };
+  $('list-body').onclick = e => {
+    const cancel = e.target.closest('[data-cancel]');
+    if (cancel) openCancel(JSON.parse(cancel.dataset.cancel));
+    const modify = e.target.closest('[data-modify]');
+    if (modify) startModify(JSON.parse(modify.dataset.modify));
+  };
+  $('modify-cancel').onclick = stopModify;
   $('btn-cancel-no').onclick = () => $('cancel-overlay').classList.add('hidden');
   $('btn-cancel-yes').onclick = doCancel;
 }

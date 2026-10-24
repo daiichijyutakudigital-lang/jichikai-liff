@@ -102,6 +102,7 @@
   .cal-day.out { background: transparent; border-color: transparent; color: #B8BDC0; }
   .cal-day.out .d { color: #B8BDC0; font-weight: 400; }
   .cal-day.empty { visibility: hidden; }
+  .cal-day.pending { opacity: 0.5; }
   .cal-day.selected { background: var(--theme); border-color: var(--theme); }
   .cal-day.selected .d, .cal-day.selected .m { color: #fff; }
   .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 10px; font-size: 15px; color: var(--muted); }
@@ -602,11 +603,12 @@ function renderCalendar() {
   for (let d = 1; d <= days; d++) {
     const date = `${month}-${pad(d)}`;
     const dow = (first + d - 1) % 7;
-    const status = loaded ? dayStatus(date) : (date < state.rules.today || date > state.rules.maxDate ? 'out' : 'loading');
-    const mark = { free: '○', some: '△', full: '×', out: '', loading: '' }[status];
+    // 読み込み待ちは 'pending'（'loading' は画面全体を覆う読み込み中の表示のクラス名なので使わない）
+    const status = loaded ? dayStatus(date) : (date < state.rules.today || date > state.rules.maxDate ? 'out' : 'pending');
+    const mark = { free: '○', some: '△', full: '×', out: '', pending: '' }[status];
     const selectable = status === 'free' || status === 'some';
     const cls = ['cal-day', status, dow === 0 ? 'sun' : dow === 6 ? 'sat' : '', state.date === date ? 'selected' : ''].join(' ');
-    const label = `${m}月${d}日 ${{ free: '空いています', some: '一部空き', full: '満室', out: '予約できません', loading: '' }[status]}`;
+    const label = `${m}月${d}日 ${{ free: '空いています', some: '一部空き', full: '満室', out: '予約できません', pending: '読み込み中' }[status]}`;
     html += `<button class="${cls}" data-date="${date}" ${selectable ? '' : 'disabled'} aria-label="${label}"><span class="d">${d}</span><span class="m">${mark}</span></button>`;
   }
   $('cal-grid').innerHTML = html;

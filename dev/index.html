@@ -216,6 +216,36 @@
   .res-date { font-size: 20px; font-weight: 700; }
   .res-time { font-size: 20px; font-weight: 700; color: var(--theme); }
   .res-meta { color: var(--muted); font-size: 17px; margin-top: 4px; }
+  .res-card.needs-check { border: 2px solid var(--pick); }
+  .res-needs { color: #8A5A00; font-weight: 700; margin-top: 6px; }
+  .res-reported { color: var(--theme); font-weight: 700; margin-top: 8px; }
+  .btn-check { width: 100%; border: 0; border-radius: 10px; background: var(--theme); color: #fff; font-size: 18px; font-weight: 700; min-height: 52px; margin-top: 10px; }
+
+  /* 退出チェック */
+  .notice-box { background: var(--pick-soft); border: 2px solid var(--pick); border-radius: 12px; padding: 12px 14px; font-weight: 700; margin-top: 12px; }
+  .check-item {
+    display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; border: 2px solid var(--line);
+    background: #fff; border-radius: 12px; padding: 14px; margin-top: 10px;
+  }
+  .check-item .box {
+    flex: none; width: 30px; height: 30px; border: 2px solid var(--theme); border-radius: 6px; background: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 20px; color: #fff; font-weight: 700;
+  }
+  .check-item[aria-pressed="true"] { border-color: var(--theme); background: var(--theme-soft); }
+  .check-item[aria-pressed="true"] .box { background: var(--theme); }
+  .check-item .txt { font-size: 18px; font-weight: 700; line-height: 1.5; }
+  .check-item small { display: block; color: var(--muted); font-size: 15px; font-weight: 400; margin-top: 2px; }
+  .check-item.missing, .check-question.missing { outline: 3px solid var(--alert); outline-offset: 2px; border-radius: 12px; }
+  .check-question { margin-top: 18px; }
+  .check-question .q { font-weight: 700; margin-bottom: 6px; }
+  .stepper { display: flex; align-items: center; gap: 14px; }
+  .stepper button { width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--theme); background: #fff; color: var(--theme); font-size: 28px; font-weight: 700; }
+  .stepper .val { font-size: 26px; font-weight: 700; min-width: 3.5em; text-align: center; }
+  .photo-thumbs { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+  .photo-thumbs figure { position: relative; margin: 0; }
+  .photo-thumbs img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; display: block; }
+  .photo-thumbs button { position: absolute; top: -10px; right: -10px; width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--alert); color: #fff; font-size: 18px; }
+  textarea.text-input { min-height: 96px; resize: vertical; line-height: 1.5; }
   .empty { text-align: center; color: var(--muted); padding: 40px 0; }
 
   /* 予約の変更中に出す帯 */
@@ -429,6 +459,44 @@
   <div class="sheet notice-sheet">
     <p id="notice-text"></p>
     <button class="btn-primary" id="notice-ok">OK</button>
+  </div>
+</div>
+
+<!-- 退出チェックの報告 -->
+<div class="full-screen hidden" id="check-screen" role="dialog" aria-modal="true" aria-labelledby="check-title">
+  <div class="inner" style="padding-bottom:48px">
+    <h2 id="check-title" style="margin:0 0 4px;font-size:24px">退出チェック</h2>
+    <p class="guide strong" id="check-target" style="white-space:pre-line"></p>
+    <p class="guide">確かめたものを押して、すべてに ✓ を付けてください。</p>
+    <div id="check-notices"></div>
+    <div id="check-items"></div>
+    <div class="field">
+      <div class="label">利用人数</div>
+      <div class="stepper">
+        <button id="check-people-minus" aria-label="1人へらす">−</button>
+        <span class="val"><span id="check-people">1</span>人</span>
+        <button id="check-people-plus" aria-label="1人ふやす">＋</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="check-left">実際に出た時刻</label>
+      <div class="hint">違うときだけ直してください</div>
+      <input class="text-input" id="check-left" type="time" style="max-width:12em">
+    </div>
+    <div class="field">
+      <div class="label">写真（なくても大丈夫です・3枚まで）</div>
+      <input type="file" id="check-photo-input" accept="image/*" multiple class="hidden">
+      <button class="btn-secondary" id="check-photo-add" style="margin-top:0">写真を撮る・選ぶ</button>
+      <div class="photo-thumbs" id="check-photos"></div>
+    </div>
+    <div class="field">
+      <label for="check-note">気づいたこと（なくても大丈夫です）</label>
+      <div class="hint">こわれている物や、足りない物などがあれば書いてください。担当者に届きます。</div>
+      <textarea class="text-input" id="check-note" maxlength="500" placeholder="例：エアコンのリモコンの電池が切れていた"></textarea>
+    </div>
+    <p class="submit-msg hidden" id="check-msg" style="margin-top:16px"></p>
+    <button class="btn-primary" id="check-submit" style="margin-top:16px">この内容で報告する</button>
+    <button class="btn-secondary" id="check-back">あとで報告する</button>
   </div>
 </div>
 
@@ -958,6 +1026,141 @@ async function startOver() {
 }
 
 // ===== 予約の確認・取消 =====
+// ===== 退出チェック =====
+function jstToday() {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
+}
+function nowHHMM() {
+  return new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()).padStart(5, '0');
+}
+function openCheck(r) {
+  const checklist = state.config.checklist;
+  if (!checklist) { showNotice('退出チェックの準備ができていません。時間をおいて、もう一度お試しください。'); return; }
+  state.check = { target: r, checked: new Set(), conditions: {}, people: 1, photos: [] };
+  $('check-target').textContent = `${dispDate(r.date)} ${dispTime(r.start)}〜${dispTime(r.end)}\n${r.organization}`;
+  $('check-notices').innerHTML = checklist.notices.map(n => `<div class="notice-box">⚠ ${esc(n)}</div>`).join('');
+  $('check-people').textContent = '1';
+  $('check-left').value = r.date === state.rules.today ? nowHHMM() : r.end;
+  $('check-note').value = '';
+  $('check-msg').classList.add('hidden');
+  renderCheckItems();
+  renderCheckPhotos();
+  $('check-screen').classList.remove('hidden');
+  $('check-screen').scrollTop = 0;
+}
+// 条件のない項目を先に、条件（質問）ごとの項目をその後ろに並べる
+function renderCheckItems() {
+  const { items } = state.config.checklist;
+  const c = state.check;
+  const itemHtml = item => `
+    <button class="check-item" data-check-item="${esc(item.text)}" aria-pressed="${c.checked.has(item.text)}">
+      <span class="box" aria-hidden="true">${c.checked.has(item.text) ? '✓' : ''}</span>
+      <span class="txt">${esc(item.text)}${item.detail ? `<small>${esc(item.detail)}</small>` : ''}</span>
+    </button>`;
+  let html = items.filter(i => !i.condition).map(itemHtml).join('');
+  [...new Set(items.map(i => i.condition).filter(Boolean))].forEach(q => {
+    const answer = c.conditions[q];
+    html += `<div class="check-question" data-question="${esc(q)}">
+      <div class="q">${esc(q)}</div>
+      <div class="choices">
+        <button class="choice" data-answer="yes" data-q="${esc(q)}" aria-pressed="${answer === true}">はい</button>
+        <button class="choice" data-answer="no" data-q="${esc(q)}" aria-pressed="${answer === false}">いいえ</button>
+      </div>
+      ${answer === true ? items.filter(i => i.condition === q).map(itemHtml).join('') : ''}
+    </div>`;
+  });
+  $('check-items').innerHTML = html;
+}
+function requiredCheckTexts() {
+  const c = state.check;
+  return state.config.checklist.items.filter(i => !i.condition || c.conditions[i.condition] === true).map(i => i.text);
+}
+async function addCheckPhotos(files) {
+  const room = 3 - state.check.photos.length;
+  if (files.length > room) showNotice('写真は3枚までです。');
+  showLoading('写真を準備しています…');
+  try {
+    for (const file of [...files].slice(0, room)) {
+      state.check.photos.push(await compressImage(file));
+    }
+  } catch (e) {
+    showNotice('写真を読み込めませんでした。別の写真を選んでください。');
+  } finally {
+    hideLoading();
+    renderCheckPhotos();
+  }
+}
+// 送る量と待ち時間を抑えるため、長い辺を 1280 ピクセルにした JPEG にする
+async function compressImage(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = reject;
+      image.src = url;
+    });
+    const scale = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.7);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+function renderCheckPhotos() {
+  const photos = state.check.photos;
+  $('check-photos').innerHTML = photos.map((src, i) =>
+    `<figure><img src="${src}" alt="選んだ写真${i + 1}"><button data-remove-photo="${i}" aria-label="写真${i + 1}を外す">×</button></figure>`).join('');
+  $('check-photo-add').classList.toggle('hidden', photos.length >= 3);
+}
+function checkProblem() {
+  const c = state.check;
+  const questions = [...new Set(state.config.checklist.items.map(i => i.condition).filter(Boolean))];
+  const unanswered = questions.find(q => typeof c.conditions[q] !== 'boolean');
+  const missing = requiredCheckTexts().find(t => !c.checked.has(t));
+  const byData = (attr, value) => [...document.querySelectorAll(`#check-items [data-${attr}]`)].find(el => el.getAttribute(`data-${attr}`) === value);
+  if (missing) return [`「${missing}」に ✓ を付けてください`, byData('check-item', missing)];
+  if (unanswered) return [`「${unanswered}」に、はい・いいえで答えてください`, byData('question', unanswered)];
+  if (!/^\d{2}:\d{2}$/.test($('check-left').value)) return ['実際に出た時刻を入れてください', $('check-left')];
+  return null;
+}
+async function submitCheck() {
+  document.querySelectorAll('#check-screen .missing').forEach(el => el.classList.remove('missing'));
+  const problem = checkProblem();
+  if (problem) {
+    $('check-msg').textContent = problem[0];
+    $('check-msg').classList.remove('hidden');
+    const el = problem[1];
+    if (el) { el.classList.add('missing'); scrollToEl(el); }
+    return;
+  }
+  const c = state.check;
+  const report = {
+    checked: requiredCheckTexts(),
+    conditions: c.conditions,
+    people: c.people,
+    leftAt: $('check-left').value,
+    note: $('check-note').value.trim(),
+    photos: c.photos.map(src => src.split(',')[1]),
+  };
+  showLoading('報告しています…');
+  try {
+    await apiPost({ api: 'reportCheck', reservationId: c.target.id, report });
+  } catch (e) {
+    hideLoading();
+    await showNotice(e.message);
+    return;
+  }
+  hideLoading();
+  $('check-screen').classList.add('hidden');
+  await showNotice('退出チェックを報告しました。\nご利用ありがとうございました。');
+  state.listLoaded = false;
+  await loadList();
+}
+
 let cancelTarget = null;
 async function loadList() {
   const body = $('list-body');
@@ -970,15 +1173,23 @@ async function loadList() {
       return;
     }
     const note = res.isAdmin ? '<p class="guide" style="margin-top:16px">管理者のため、全員の予約を表示しています。</p>' : '';
-    body.innerHTML = note + res.reservations.map(r => `
-      <div class="res-card">
+    state.listItems = res.reservations;
+    body.innerHTML = note + res.reservations.map(r => {
+      const json = esc(JSON.stringify(r));
+      const pastUnreported = r.canReport && r.date < jstToday();  // 初期情報より先に届くことがあるため state.rules は使わない
+      return `
+      <div class="res-card ${pastUnreported ? 'needs-check' : ''}">
         <div class="res-date">${esc(dispDate(r.date))}</div>
         <div class="res-time">${esc(dispTime(r.start))} 〜 ${esc(dispTime(r.end))}</div>
         <div class="res-meta">${esc(r.organization)}／${esc(r.purpose)}</div>
         ${res.isAdmin ? `<div class="res-meta">申し込み：${esc(r.applicantName)} 様</div>` : ''}
-        ${r.canModify ? `<button class="btn-modify" data-modify='${esc(JSON.stringify(r))}'>この予約を変更する</button>` : ''}
-        <button class="btn-danger" data-cancel='${esc(JSON.stringify(r))}'>この予約を取り消す</button>
-      </div>`).join('');
+        ${pastUnreported ? '<div class="res-needs">退出チェックが未報告です</div>' : ''}
+        ${r.checkReported ? '<div class="res-reported">✓ 退出チェック報告済み</div>' : ''}
+        ${r.canReport ? `<button class="btn-check" data-check='${json}'>退出チェックを報告する</button>` : ''}
+        ${r.canModify ? `<button class="btn-modify" data-modify='${json}'>この予約を変更する</button>` : ''}
+        ${r.canCancel !== false ? `<button class="btn-danger" data-cancel='${json}'>この予約を取り消す</button>` : ''}
+      </div>`;
+    }).join('');
   } catch (e) {
     body.innerHTML = `<div class="error-box">${esc(e.message)}</div>`;
   }
@@ -1183,7 +1394,33 @@ function bindEvents() {
     if (cancel) openCancel(JSON.parse(cancel.dataset.cancel));
     const modify = e.target.closest('[data-modify]');
     if (modify) startModify(JSON.parse(modify.dataset.modify));
+    const check = e.target.closest('[data-check]');
+    if (check) openCheck(JSON.parse(check.dataset.check));
   };
+  $('check-items').onclick = e => {
+    const item = e.target.closest('[data-check-item]');
+    const answer = e.target.closest('[data-answer]');
+    if (item) {
+      const t = item.dataset.checkItem;
+      state.check.checked.has(t) ? state.check.checked.delete(t) : state.check.checked.add(t);
+    } else if (answer) {
+      state.check.conditions[answer.dataset.q] = answer.dataset.answer === 'yes';
+    } else {
+      return;
+    }
+    $('check-msg').classList.add('hidden');
+    renderCheckItems();
+  };
+  $('check-people-minus').onclick = () => { state.check.people = Math.max(1, state.check.people - 1); $('check-people').textContent = state.check.people; };
+  $('check-people-plus').onclick = () => { state.check.people = Math.min(200, state.check.people + 1); $('check-people').textContent = state.check.people; };
+  $('check-photo-add').onclick = () => $('check-photo-input').click();
+  $('check-photo-input').onchange = e => { const files = e.target.files; if (files.length) addCheckPhotos(files); e.target.value = ''; };
+  $('check-photos').onclick = e => {
+    const b = e.target.closest('[data-remove-photo]');
+    if (b) { state.check.photos.splice(Number(b.dataset.removePhoto), 1); renderCheckPhotos(); }
+  };
+  $('check-submit').onclick = submitCheck;
+  $('check-back').onclick = () => $('check-screen').classList.add('hidden');
   $('modify-cancel').onclick = stopModify;
   $('btn-cancel-no').onclick = () => $('cancel-overlay').classList.add('hidden');
   $('btn-cancel-yes').onclick = doCancel;
@@ -1202,7 +1439,7 @@ async function main() {
     const requested = new URLSearchParams(location.search).get('tab');
     const tab = TABS.includes(requested) ? requested : 'reserve';
     // 開いたタブに必要なデータは、初期情報の問い合わせを待たずに同時に取りに行く（GAS の応答待ちを1回分にするため）
-    const thisMonth = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date()).slice(0, 7);
+    const thisMonth = jstToday().slice(0, 7);
     const preloads = [];
     if (tab === 'reserve') preloads.push(loadMonth(thisMonth).catch(() => {}));  // 空き状況はログイン不要なので最初に
 
@@ -1228,6 +1465,13 @@ async function main() {
     renderDetail();
     renderPerson();
     await switchTab(tab);
+    // 「退出チェックのお願い」のボタン（?tab=list&check=予約ID）から開いたときは、報告画面を直接開く
+    const checkId = new URLSearchParams(location.search).get('check');
+    if (checkId && tab === 'list') {
+      const target = (state.listItems || []).find(r => r.id === checkId);
+      if (target && target.canReport) openCheck(target);
+      else if (target && target.checkReported) showNotice('この予約の退出チェックは、報告済みです。');
+    }
   } catch (e) {
     $('fatal').textContent = e.message || 'エラーが発生しました。画面を閉じて、もう一度開いてください。';
     $('fatal').classList.remove('hidden');

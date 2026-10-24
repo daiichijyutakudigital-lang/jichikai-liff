@@ -222,6 +222,14 @@
   .btn-check { width: 100%; border: 0; border-radius: 10px; background: var(--theme); color: #fff; font-size: 18px; font-weight: 700; min-height: 52px; margin-top: 10px; }
 
   /* 退出チェック */
+  .select-item {
+    display: block; width: 100%; text-align: left; border: 2px solid var(--theme); background: #fff; border-radius: 12px;
+    padding: 12px 14px; margin-top: 10px;
+  }
+  .select-item .d { font-size: 18px; font-weight: 700; }
+  .select-item .t { font-size: 20px; font-weight: 700; color: var(--theme); }
+  .select-item .o { color: var(--muted); }
+  .select-item .today { display: inline-block; background: var(--pick); color: #3D2A00; border-radius: 6px; padding: 0 8px; font-size: 15px; font-weight: 700; margin-left: 6px; }
   .notice-box { background: var(--pick-soft); border: 2px solid var(--pick); border-radius: 12px; padding: 12px 14px; font-weight: 700; margin-top: 12px; }
   .check-item {
     display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; border: 2px solid var(--line);
@@ -459,6 +467,16 @@
   <div class="sheet notice-sheet">
     <p id="notice-text"></p>
     <button class="btn-primary" id="notice-ok">OK</button>
+  </div>
+</div>
+
+<!-- 退出チェックの予約の選択（館内の QR コードなど、予約が特定できないときに開く） -->
+<div class="overlay hidden" id="check-select-overlay" role="dialog" aria-modal="true" aria-labelledby="check-select-title">
+  <div class="sheet">
+    <h3 id="check-select-title">どの予約の退出チェックをしますか？</h3>
+    <p class="guide" style="margin-top:4px">報告する予約を押してください。</p>
+    <div id="check-select-list"></div>
+    <button class="btn-secondary" id="check-select-close">閉じる</button>
   </div>
 </div>
 
@@ -1161,6 +1179,32 @@ async function submitCheck() {
   await loadList();
 }
 
+/**
+ * 館内の QR コード（?check=select）から開いたときなど、どの予約の報告かがわからないときに呼ぶ。
+ * 報告できる予約が1件ならその報告画面を開き、2件以上なら選んでもらい、0件なら理由を知らせる。
+ */
+function openCheckSelector() {
+  const today = jstToday();
+  const candidates = (state.listItems || []).filter(r => r.canReport)
+    // 今日の予約を先に、その中では始まりの遅い（最近の）順
+    .sort((a, b) => (b.date === today) - (a.date === today) || (b.date + b.start).localeCompare(a.date + a.start));
+  if (candidates.length === 0) {
+    showNotice('いま報告できる予約がありません。\n\n退出チェックは、利用開始の時刻から報告できます。\n電話などで予約を頼んだ場合は、担当者にお知らせください。');
+    return;
+  }
+  if (candidates.length === 1) {
+    openCheck(candidates[0]);
+    return;
+  }
+  $('check-select-list').innerHTML = candidates.map(r => `
+    <button class="select-item" data-select-check='${esc(JSON.stringify(r))}'>
+      <span class="d">${esc(dispDate(r.date))}</span>${r.date === today ? '<span class="today">今日</span>' : ''}<br>
+      <span class="t">${esc(dispTime(r.start))} 〜 ${esc(dispTime(r.end))}</span><br>
+      <span class="o">${esc(r.organization)}／${esc(r.purpose)}</span>
+    </button>`).join('');
+  $('check-select-overlay').classList.remove('hidden');
+}
+
 let cancelTarget = null;
 async function loadList() {
   const body = $('list-body');
@@ -1420,6 +1464,13 @@ function bindEvents() {
     if (b) { state.check.photos.splice(Number(b.dataset.removePhoto), 1); renderCheckPhotos(); }
   };
   $('check-submit').onclick = submitCheck;
+  $('check-select-list').onclick = e => {
+    const b = e.target.closest('[data-select-check]');
+    if (!b) return;
+    $('check-select-overlay').classList.add('hidden');
+    openCheck(JSON.parse(b.dataset.selectCheck));
+  };
+  $('check-select-close').onclick = () => $('check-select-overlay').classList.add('hidden');
   $('check-back').onclick = () => $('check-screen').classList.add('hidden');
   $('modify-cancel').onclick = stopModify;
   $('btn-cancel-no').onclick = () => $('cancel-overlay').classList.add('hidden');
@@ -1436,8 +1487,10 @@ async function main() {
   }
   showLoading();
   try {
-    const requested = new URLSearchParams(location.search).get('tab');
-    const tab = TABS.includes(requested) ? requested : 'reserve';
+    const params = new URLSearchParams(location.search);
+    const requested = params.get('tab');
+    // 退出チェックのリンク（?check=…）から開いたときは、自分の予約のタブを開く
+    const tab = params.has('check') ? 'list' : TABS.includes(requested) ? requested : 'reserve';
     // 開いたタブに必要なデータは、初期情報の問い合わせを待たずに同時に取りに行く（GAS の応答待ちを1回分にするため）
     const thisMonth = jstToday().slice(0, 7);
     const preloads = [];
@@ -1466,11 +1519,14 @@ async function main() {
     renderPerson();
     await switchTab(tab);
     // 「退出チェックのお願い」のボタン（?tab=list&check=予約ID）から開いたときは、報告画面を直接開く
-    const checkId = new URLSearchParams(location.search).get('check');
-    if (checkId && tab === 'list') {
+    // 退出チェックのリンクから開いたとき: 予約IDがわかればその報告画面を、
+    // わからなければ（館内の QR コード ?check=select など）予約を選ぶ画面を開く
+    if (params.has('check')) {
+      const checkId = params.get('check');
       const target = (state.listItems || []).find(r => r.id === checkId);
       if (target && target.canReport) openCheck(target);
       else if (target && target.checkReported) showNotice('この予約の退出チェックは、報告済みです。');
+      else openCheckSelector();
     }
   } catch (e) {
     $('fatal').textContent = e.message || 'エラーが発生しました。画面を閉じて、もう一度開いてください。';

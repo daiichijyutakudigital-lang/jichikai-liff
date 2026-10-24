@@ -193,6 +193,10 @@
   .summary td { font-weight: 700; }
   .summary td.em { font-size: 20px; }
 
+  .overlay.notice { align-items: center; z-index: 50; }
+  .notice-sheet { border-radius: 18px; margin: 0 16px; max-width: 480px; }
+  #notice-text { font-size: 20px; font-weight: 700; white-space: pre-line; margin: 8px 0 20px; line-height: 1.6; }
+
   .full-screen { position: fixed; inset: 0; background: var(--bg); z-index: 30; overflow-y: auto; }
   .full-screen .inner { max-width: 560px; margin: 0 auto; padding: 32px 16px; }
   .done-mark {
@@ -420,6 +424,14 @@
   </div>
 </div>
 
+<!-- お知らせ（スマホ標準の alert の代わり） -->
+<div class="overlay notice hidden" id="notice-overlay" role="alertdialog" aria-modal="true" aria-labelledby="notice-text">
+  <div class="sheet notice-sheet">
+    <p id="notice-text"></p>
+    <button class="btn-primary" id="notice-ok">OK</button>
+  </div>
+</div>
+
 <!-- 完了画面 -->
 <div class="full-screen hidden" id="done-screen">
   <div class="inner">
@@ -528,6 +540,16 @@ function esc(s) {
 function summaryRows(rows) {
   return rows.map(([k, v, em]) => `<tr><th>${esc(k)}</th><td class="${em ? 'em' : ''}">${esc(v).replace(/\n/g, '<br>')}</td></tr>`).join('');
 }
+// スマホ標準の alert は見出しにホームページのアドレス（英語）が出て分かりにくいため、画面の中にお知らせを出す。
+// 「OK」が押されたら終わる Promise を返す。
+function showNotice(message) {
+  return new Promise(resolve => {
+    $('notice-text').textContent = message;
+    $('notice-overlay').classList.remove('hidden');
+    $('notice-ok').onclick = () => { $('notice-overlay').classList.add('hidden'); resolve(); };
+    $('notice-ok').focus();
+  });
+}
 function scrollToEl(el) { setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }
 let toastTimer = null;
 function showToast(text) {
@@ -585,7 +607,7 @@ async function changeMonth(diff) {
   const next = shiftMonth(state.viewMonth, diff);
   state.viewMonth = next;
   renderCalendar();
-  try { await loadMonth(next); } catch (e) { alert(e.message); }
+  try { await loadMonth(next); } catch (e) { showNotice(e.message); }
   renderCalendar();
 }
 function renderCalendar() {
@@ -850,7 +872,7 @@ async function submitReservation() {
     state.listLoaded = false;
     if (!m && !state.isProxy) state.config.applicant = { ...r.applicant };
   } catch (e) {
-    alert(e.message);
+    showNotice(e.message);
     // 予約が埋まった可能性があるため、空き状況を読み直す
     delete state.busyByMonth[r.date.slice(0, 7)];
     await loadMonth(r.date.slice(0, 7)).catch(() => {});
@@ -892,7 +914,7 @@ async function startModify(r) {
   state.viewMonth = r.date.slice(0, 7);
   await switchTab('reserve');
   showLoading();
-  try { await loadMonth(state.viewMonth); } catch (e) { alert(e.message); } finally { hideLoading(); }
+  try { await loadMonth(state.viewMonth); } catch (e) { showNotice(e.message); } finally { hideLoading(); }
 
   state.date = r.date;
   state.startIdx = state.slots.findIndex(s => s.start === r.start);
@@ -930,7 +952,7 @@ async function startOver() {
   $('done-screen').classList.add('hidden');
   resetReserveForm();
   showLoading();
-  try { await loadMonth(state.viewMonth); } catch (e) { alert(e.message); } finally { hideLoading(); }
+  try { await loadMonth(state.viewMonth); } catch (e) { showNotice(e.message); } finally { hideLoading(); }
   renderCalendar(); renderDetail(); renderPerson(); updateProgress();
   window.scrollTo(0, 0);
 }
@@ -976,15 +998,17 @@ async function doCancel() {
   showLoading('取り消しています…');
   try {
     await apiPost({ api: 'cancel', reservationId: cancelTarget.id });
-    delete state.busyByMonth[cancelTarget.date.slice(0, 7)];
-    delete state.calByMonth[cancelTarget.date.slice(0, 7)];
-    alert('予約を取り消しました。');
-    await loadList();
   } catch (e) {
-    alert(e.message);
-  } finally {
     hideLoading();
+    await showNotice(e.message);
+    return;
   }
+  delete state.busyByMonth[cancelTarget.date.slice(0, 7)];
+  delete state.calByMonth[cancelTarget.date.slice(0, 7)];
+  // 取り消しは終わっているので、読み込み中の表示を閉じてからお知らせを出す（一覧の読み直しは一覧の中に表示する）
+  hideLoading();
+  await showNotice('予約を取り消しました。');
+  await loadList();
 }
 
 // ===== 空きカレンダー（全員の予約状況） =====
@@ -1012,7 +1036,7 @@ async function changeVcMonth(diff) {
   state.vcDate = null;
   $('vc-day').classList.add('hidden');
   renderVcCalendar();
-  try { await loadVcMonth(state.vcMonth); } catch (e) { alert(e.message); }
+  try { await loadVcMonth(state.vcMonth); } catch (e) { showNotice(e.message); }
   renderVcCalendar();
 }
 function renderVcCalendar() {
@@ -1079,7 +1103,7 @@ async function bookFromVc() {
   const date = state.vcDate;
   state.viewMonth = date.slice(0, 7);
   await switchTab('reserve');
-  try { await loadMonth(state.viewMonth); } catch (e) { alert(e.message); return; }
+  try { await loadMonth(state.viewMonth); } catch (e) { showNotice(e.message); return; }
   renderCalendar();
   if (['free', 'some'].includes(dayStatus(date))) selectDate(date);
 }
@@ -1098,13 +1122,13 @@ async function switchTab(tab) {
   if (tab === 'calendar') {
     if (!state.calByMonth[state.vcMonth]) {
       renderVcCalendar();
-      try { await loadVcMonth(state.vcMonth); } catch (e) { alert(e.message); }
+      try { await loadVcMonth(state.vcMonth); } catch (e) { showNotice(e.message); }
     }
     renderVcCalendar();
     if (state.vcDate) renderVcDay();
   }
   if (tab === 'reserve' && !state.busyByMonth[state.viewMonth]) {
-    try { await loadMonth(state.viewMonth); } catch (e) { alert(e.message); }
+    try { await loadMonth(state.viewMonth); } catch (e) { showNotice(e.message); }
     renderCalendar();
     if (state.date) renderSlots();
   }

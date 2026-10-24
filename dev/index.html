@@ -216,8 +216,6 @@
   .res-date { font-size: 20px; font-weight: 700; }
   .res-time { font-size: 20px; font-weight: 700; color: var(--theme); }
   .res-meta { color: var(--muted); font-size: 17px; margin-top: 4px; }
-  .res-card.needs-check { border: 2px solid var(--pick); }
-  .res-needs { color: #8A5A00; font-weight: 700; margin-top: 6px; }
   .res-reported { color: var(--theme); font-weight: 700; margin-top: 8px; }
   .btn-check { width: 100%; border: 0; border-radius: 10px; background: var(--theme); color: #fff; font-size: 18px; font-weight: 700; min-height: 52px; margin-top: 10px; }
 
@@ -229,7 +227,6 @@
   .select-item .d { font-size: 18px; font-weight: 700; }
   .select-item .t { font-size: 20px; font-weight: 700; color: var(--theme); }
   .select-item .o { color: var(--muted); }
-  .select-item .today { display: inline-block; background: var(--pick); color: #3D2A00; border-radius: 6px; padding: 0 8px; font-size: 15px; font-weight: 700; margin-left: 6px; }
   .notice-box { background: var(--pick-soft); border: 2px solid var(--pick); border-radius: 12px; padding: 12px 14px; font-weight: 700; margin-top: 12px; }
   .check-item {
     display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; border: 2px solid var(--line);
@@ -1184,12 +1181,11 @@ async function submitCheck() {
  * 報告できる予約が1件ならその報告画面を開き、2件以上なら選んでもらい、0件なら理由を知らせる。
  */
 function openCheckSelector() {
-  const today = jstToday();
+  // 報告できるのは今日の予約だけなので、始まりの遅い（最近の）順に並べる
   const candidates = (state.listItems || []).filter(r => r.canReport)
-    // 今日の予約を先に、その中では始まりの遅い（最近の）順
-    .sort((a, b) => (b.date === today) - (a.date === today) || (b.date + b.start).localeCompare(a.date + a.start));
+    .sort((a, b) => (b.date + b.start).localeCompare(a.date + a.start));
   if (candidates.length === 0) {
-    showNotice('いま報告できる予約がありません。\n\n退出チェックは、利用開始の時刻から報告できます。\n電話などで予約を頼んだ場合は、担当者にお知らせください。');
+    showNotice('いま報告できる予約がありません。\n\n退出チェックは、利用日の当日、利用開始の時刻から報告できます。\n電話などで予約を頼んだ場合は、担当者にお知らせください。');
     return;
   }
   if (candidates.length === 1) {
@@ -1198,7 +1194,7 @@ function openCheckSelector() {
   }
   $('check-select-list').innerHTML = candidates.map(r => `
     <button class="select-item" data-select-check='${esc(JSON.stringify(r))}'>
-      <span class="d">${esc(dispDate(r.date))}</span>${r.date === today ? '<span class="today">今日</span>' : ''}<br>
+      <span class="d">${esc(dispDate(r.date))}</span><br>
       <span class="t">${esc(dispTime(r.start))} 〜 ${esc(dispTime(r.end))}</span><br>
       <span class="o">${esc(r.organization)}／${esc(r.purpose)}</span>
     </button>`).join('');
@@ -1220,14 +1216,12 @@ async function loadList() {
     state.listItems = res.reservations;
     body.innerHTML = note + res.reservations.map(r => {
       const json = esc(JSON.stringify(r));
-      const pastUnreported = r.canReport && r.date < jstToday();  // 初期情報より先に届くことがあるため state.rules は使わない
       return `
-      <div class="res-card ${pastUnreported ? 'needs-check' : ''}">
+      <div class="res-card">
         <div class="res-date">${esc(dispDate(r.date))}</div>
         <div class="res-time">${esc(dispTime(r.start))} 〜 ${esc(dispTime(r.end))}</div>
         <div class="res-meta">${esc(r.organization)}／${esc(r.purpose)}</div>
         ${res.isAdmin ? `<div class="res-meta">申し込み：${esc(r.applicantName)} 様</div>` : ''}
-        ${pastUnreported ? '<div class="res-needs">退出チェックが未報告です</div>' : ''}
         ${r.checkReported ? '<div class="res-reported">✓ 退出チェック報告済み</div>' : ''}
         ${r.canReport ? `<button class="btn-check" data-check='${json}'>退出チェックを報告する</button>` : ''}
         ${r.canModify ? `<button class="btn-modify" data-modify='${json}'>この予約を変更する</button>` : ''}

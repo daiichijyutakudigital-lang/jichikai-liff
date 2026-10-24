@@ -426,12 +426,24 @@
 
 <script>
 // ===== 設定 =====
-const CONFIG = {
-  // LINE Developers で作成した LIFF アプリの LIFF ID
-  LIFF_ID: '2012181143-f8oPoAMv',
-  // line-bot プロジェクトの Web アプリ URL（検証用デプロイ。本番の Webhook とは別のデプロイID）
-  API_URL: 'https://script.google.com/macros/s/AKfycbwFfW_ZfibEU4D4qhqku5C1pbBjaVyv1kcByzMoZ0hvvWGztgwJFBfuWEL4BYkpduwt/exec',
+// 同じファイルを GitHub Pages の /jichikai-liff/（本番）と /jichikai-liff/dev/（開発）に置き、
+// 置かれた場所で接続先を切り替える。
+const ENVIRONMENTS = {
+  prod: {
+    // LINE Developers で作成した LIFF アプリの LIFF ID
+    LIFF_ID: '2012181143-f8oPoAMv',
+    // line-bot プロジェクトの Web アプリ URL（LIFF予約API のデプロイ。本番の Webhook とは別のデプロイID）
+    API_URL: 'https://script.google.com/macros/s/AKfycbwFfW_ZfibEU4D4qhqku5C1pbBjaVyv1kcByzMoZ0hvvWGztgwJFBfuWEL4BYkpduwt/exec',
+  },
+  dev: {
+    // 開発用の LINE ログインチャネルで作成した LIFF アプリの LIFF ID
+    LIFF_ID: '2012183961-QERF0tYA',
+    // 開発用 GAS プロジェクトの Web アプリ URL
+    API_URL: 'https://script.google.com/macros/s/AKfycbyNiwFUwN5yMxmgES53c8dd7vwMnPxWiXXZ5gf8e6CKnE7JEMrp_B9TMqyVcWUEhCah/exec',
+  },
 };
+const ENV = /\/dev\/(index\.html)?$/.test(location.pathname) ? 'dev' : 'prod';
+const CONFIG = ENVIRONMENTS[ENV];
 
 const DOW = ['日', '月', '火', '水', '木', '金', '土'];
 const $ = id => document.getElementById(id);
@@ -1046,6 +1058,12 @@ function bindEvents() {
 
 // ===== 起動 =====
 async function main() {
+  if (ENV === 'dev') {
+    // 本番と見間違えないよう、開発環境では上部の帯の色と文言を変える
+    const header = document.querySelector('.app-header');
+    header.textContent = '【開発】' + header.textContent;
+    header.style.background = '#8A4B08';
+  }
   showLoading();
   try {
     await liff.init({ liffId: CONFIG.LIFF_ID });

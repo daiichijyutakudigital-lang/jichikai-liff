@@ -271,6 +271,25 @@
   .tl-row { display: flex; gap: 12px; align-items: baseline; padding: 12px 10px; border-radius: 10px; margin-top: 6px; }
   .tl-row .tl-time { flex: none; width: 7.2em; font-weight: 700; }
   .tl-row.busy { background: var(--pick-soft); border-left: 6px solid var(--pick); }
+  /* 管理者だけ: 予約の行を押すと退出チェックの報告を開く */
+  button.tl-row { width: 100%; text-align: left; border-top: 0; border-right: 0; border-bottom: 0; font: inherit; color: inherit; cursor: pointer; }
+  .tl-row .tl-status { margin-left: auto; flex: none; font-size: 15px; font-weight: 700; }
+  .tl-status.reported { color: var(--theme); }
+  .tl-status.unreported { color: var(--alert); }
+
+  /* 退出チェックの報告を見る（管理者） */
+  .status-badge { display: inline-block; border-radius: 999px; padding: 4px 14px; font-weight: 700; font-size: 17px; margin: 4px 0 8px; }
+  .status-badge.reported { background: var(--theme); color: #fff; }
+  .status-badge.unreported { background: var(--alert-soft); color: var(--alert); }
+  .status-badge.notStarted { background: var(--busy-bg); color: var(--muted); }
+  .report-list { list-style: none; margin: 6px 0 0; padding: 0; }
+  .report-list li { padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .report-note { background: var(--pick-soft); border: 2px solid var(--pick); border-radius: 12px; padding: 12px 14px; font-weight: 700; white-space: pre-line; margin-top: 8px; }
+  .report-photos { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+  .report-photos button { border: 0; padding: 0; background: var(--busy-bg); border-radius: 8px; width: 120px; height: 120px; color: var(--muted); font-size: 14px; }
+  .report-photos img { width: 120px; height: 120px; object-fit: cover; border-radius: 8px; display: block; }
+  .photo-viewer { align-items: center; z-index: 45; background: rgba(0,0,0,0.85); flex-direction: column; gap: 12px; padding: 16px; }
+  .photo-viewer img { max-width: 100%; max-height: 80vh; border-radius: 8px; }
   .tl-row.busy .tl-what { font-weight: 700; font-size: 19px; }
   .tl-row.free { background: var(--theme-soft); color: var(--theme); }
 </style>
@@ -477,6 +496,19 @@
   </div>
 </div>
 
+<!-- 退出チェックの報告を見る（管理者だけ） -->
+<div class="full-screen hidden" id="report-screen" role="dialog" aria-modal="true" aria-labelledby="report-title">
+  <div class="inner" style="padding-bottom:48px">
+    <h2 id="report-title" style="margin:0 0 4px;font-size:24px">退出チェックの報告</h2>
+    <div id="report-body"></div>
+    <button class="btn-secondary" id="report-close" style="margin-top:20px">閉じる</button>
+  </div>
+</div>
+<div class="overlay photo-viewer hidden" id="photo-viewer" role="dialog" aria-modal="true" aria-label="写真を大きく表示">
+  <img id="photo-large" alt="退出チェックの写真">
+  <button class="btn-secondary" id="photo-close" style="max-width:320px">閉じる</button>
+</div>
+
 <!-- 退出チェックの報告 -->
 <div class="full-screen hidden" id="check-screen" role="dialog" aria-modal="true" aria-labelledby="check-title">
   <div class="inner" style="padding-bottom:48px">
@@ -499,15 +531,12 @@
       <input class="text-input" id="check-left" type="time" style="max-width:12em">
     </div>
     <div class="field">
-      <div class="label">写真（なくても大丈夫です・3枚まで）</div>
-      <input type="file" id="check-photo-input" accept="image/*" multiple class="hidden">
-      <button class="btn-secondary" id="check-photo-add" style="margin-top:0">写真を撮る・選ぶ</button>
-      <div class="photo-thumbs" id="check-photos"></div>
-    </div>
-    <div class="field">
       <label for="check-note">気づいたこと（なくても大丈夫です）</label>
-      <div class="hint">こわれている物や、足りない物などがあれば書いてください。担当者に届きます。</div>
+      <div class="hint">こわれている物や、足りない物などがあれば、書くか写真を付けてください。担当者に届きます。</div>
       <textarea class="text-input" id="check-note" maxlength="500" placeholder="例：エアコンのリモコンの電池が切れていた"></textarea>
+      <input type="file" id="check-photo-input" accept="image/*" multiple class="hidden">
+      <button class="btn-secondary" id="check-photo-add">写真を付ける（3枚まで）</button>
+      <div class="photo-thumbs" id="check-photos"></div>
     </div>
     <p class="submit-msg hidden" id="check-msg" style="margin-top:16px"></p>
     <button class="btn-primary" id="check-submit" style="margin-top:16px">この内容で報告する</button>
@@ -1201,6 +1230,64 @@ function openCheckSelector() {
   $('check-select-overlay').classList.remove('hidden');
 }
 
+// ===== 退出チェックの報告を見る（管理者だけ） =====
+const REPORT_STATUS_LABEL = { reported: '✓ 報告済み', unreported: '⚠ 未報告', notStarted: 'まだ始まっていません' };
+async function openReport(reservationId) {
+  showLoading();
+  let res;
+  try {
+    res = await apiPost({ api: 'checkReport', reservationId });
+  } catch (e) {
+    hideLoading();
+    showNotice(e.message);
+    return;
+  }
+  hideLoading();
+  const r = res.reservation;
+  const rep = res.report;
+  let html = `<span class="status-badge ${res.status}">${REPORT_STATUS_LABEL[res.status]}</span>
+    <table class="summary">${summaryRows([
+      ['日にち', dispDate(r.date), true],
+      ['時間', `${dispTime(r.start)} 〜 ${dispTime(r.end)}`, true],
+      ['団体', r.organization],
+      ['申し込み', `${r.applicantName} 様`],
+      ...(r.cancelled ? [['状態', 'この予約は取り消されています']] : []),
+      ...(rep ? [
+        ['報告日時', rep.reportedAt],
+        ['報告した人', rep.reporter],
+        ['利用人数', `${rep.people}人`],
+        ['出た時刻', rep.leftAt],
+      ] : []),
+    ])}</table>`;
+  if (rep) {
+    const photos = rep.photoCount
+      ? `<div class="report-photos">${Array.from({ length: rep.photoCount }, (_, i) => `<button data-photo="${i}" disabled>読み込み中…</button>`).join('')}</div>`
+      : '';
+    html += `<div class="field"><div class="label">気づいたこと</div>${rep.note || rep.photoCount
+      ? `<div class="report-note">${rep.note ? esc(rep.note) : '（写真のみ）'}${photos}</div>` : '<div class="guide">（なし）</div>'}</div>`;
+    html += `<div class="field"><div class="label">チェックした項目</div><ul class="report-list">${rep.checked.map(t => `<li>✓ ${esc(t)}</li>`).join('')}</ul></div>`;
+    if (rep.conditions.length) {
+      html += `<div class="field"><div class="label">質問への回答</div><ul class="report-list">${rep.conditions.map(t => `<li>${esc(t)}</li>`).join('')}</ul></div>`;
+    }
+  }
+  $('report-body').innerHTML = html;
+  $('report-screen').classList.remove('hidden');
+  $('report-screen').scrollTop = 0;
+  // 写真は文字の内容を先に見せてから、1枚ずつ読み込む
+  if (rep) {
+    for (let i = 0; i < rep.photoCount; i++) {
+      const cell = document.querySelector(`#report-body [data-photo="${i}"]`);
+      try {
+        const { photo } = await apiPost({ api: 'checkPhoto', reservationId: r.id, index: i });
+        cell.innerHTML = `<img src="data:image/jpeg;base64,${photo}" alt="写真${i + 1}">`;
+        cell.disabled = false;
+      } catch (e) {
+        cell.textContent = '読み込めませんでした';
+      }
+    }
+  }
+}
+
 let cancelTarget = null;
 async function loadList() {
   const body = $('list-body');
@@ -1333,17 +1420,24 @@ function renderVcDay() {
   let cursor = openingTime;
   list.forEach(r => {
     if (r.start > cursor) rows.push({ start: cursor, end: r.start, free: true });
-    rows.push({ start: r.start, end: r.end, free: false, organization: r.organization });
+    rows.push({ start: r.start, end: r.end, free: false, organization: r.organization, id: r.id, checkReported: r.checkReported });
     if (r.end > cursor) cursor = r.end;
   });
   if (cursor < closingTime) rows.push({ start: cursor, end: closingTime, free: true });
 
   $('vc-day-title').textContent = dispDate(date);
-  $('vc-timeline').innerHTML = rows.map(r => `
-    <div class="tl-row ${r.free ? 'free' : 'busy'}">
+  const { today, nowTime } = state.rules;
+  $('vc-timeline').innerHTML = rows.map(r => {
+    const inner = `
       <span class="tl-time">${esc(dispTime(r.start))}〜${esc(dispTime(r.end))}</span>
-      <span class="tl-what">${r.free ? '空き' : esc(r.organization)}</span>
-    </div>`).join('');
+      <span class="tl-what">${r.free ? '空き' : esc(r.organization)}</span>`;
+    // 予約IDが付いている（＝管理者）ときだけ、押すと退出チェックの報告を開く
+    if (r.free || !r.id) return `<div class="tl-row ${r.free ? 'free' : 'busy'}">${inner}</div>`;
+    const started = date < today || (date === today && r.start <= nowTime);
+    const status = r.checkReported ? '<span class="tl-status reported">✓ 報告済み</span>'
+      : started ? '<span class="tl-status unreported">未報告</span>' : '';
+    return `<button class="tl-row busy" data-report="${esc(r.id)}" aria-label="${esc(dispTime(r.start))}から ${esc(r.organization)} の退出チェックを見る">${inner}${status}</button>`;
+  }).join('');
 
   const canBook = date >= state.rules.today && date <= state.rules.maxDate && vcFreeSlotCount(date) > 0;
   $('vc-book').classList.toggle('hidden', !canBook);
@@ -1392,6 +1486,15 @@ function bindEvents() {
   $('vc-next').onclick = () => changeVcMonth(1);
   $('vc-grid').onclick = e => { const b = e.target.closest('[data-vcdate]'); if (b && !b.disabled) selectVcDate(b.dataset.vcdate); };
   $('vc-book').onclick = bookFromVc;
+  $('vc-timeline').onclick = e => { const b = e.target.closest('[data-report]'); if (b) openReport(b.dataset.report); };
+  $('report-close').onclick = () => $('report-screen').classList.add('hidden');
+  $('report-body').onclick = e => {
+    const img = e.target.closest('[data-photo]') && e.target.closest('[data-photo]').querySelector('img');
+    if (!img) return;
+    $('photo-large').src = img.src;
+    $('photo-viewer').classList.remove('hidden');
+  };
+  $('photo-close').onclick = () => $('photo-viewer').classList.add('hidden');
   $('cal-prev').onclick = () => changeMonth(-1);
   $('cal-next').onclick = () => changeMonth(1);
   $('cal-grid').onclick = e => { const b = e.target.closest('[data-date]'); if (b && !b.disabled) selectDate(b.dataset.date); };
@@ -1483,8 +1586,9 @@ async function main() {
   try {
     const params = new URLSearchParams(location.search);
     const requested = params.get('tab');
-    // 退出チェックのリンク（?check=…）から開いたときは、自分の予約のタブを開く
-    const tab = params.has('check') ? 'list' : TABS.includes(requested) ? requested : 'reserve';
+    // 退出チェックのリンク（?check=…）から開いたときは自分の予約のタブ、
+    // 担当者への連絡の「報告を見る」（?report=予約ID）から開いたときは空きカレンダーのタブを開く
+    const tab = params.has('check') ? 'list' : params.has('report') ? 'calendar' : TABS.includes(requested) ? requested : 'reserve';
     // 開いたタブに必要なデータは、初期情報の問い合わせを待たずに同時に取りに行く（GAS の応答待ちを1回分にするため）
     const thisMonth = jstToday().slice(0, 7);
     const preloads = [];
@@ -1521,6 +1625,10 @@ async function main() {
       if (target && target.canReport) openCheck(target);
       else if (target && target.checkReported) showNotice('この予約の退出チェックは、報告済みです。');
       else openCheckSelector();
+    }
+    if (params.has('report')) {
+      if (config.isAdmin) openReport(params.get('report'));
+      else showNotice('退出チェックの報告は、担当者（管理者）だけが見られます。');
     }
   } catch (e) {
     $('fatal').textContent = e.message || 'エラーが発生しました。画面を閉じて、もう一度開いてください。';

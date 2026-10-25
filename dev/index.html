@@ -65,6 +65,8 @@
     border-bottom: 4px solid transparent;
   }
   .tab[aria-selected="true"] { color: var(--theme); border-bottom-color: var(--theme); }
+  /* 管理者は「管理者」タブが増えて4つになるため、文字の長さに合わせて幅を分け、途中で折り返さないようにする */
+  .tabs.with-admin .tab { flex: 1 1 auto; padding: 14px 2px; font-size: 15px; white-space: nowrap; }
 
   main { max-width: 560px; margin: 0 auto; padding: 0 16px; }
 
@@ -80,10 +82,10 @@
 
   /* カレンダー */
   .cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-  .cal-title { font-size: 20px; font-weight: 700; }
+  .cal-title { font-size: 20px; font-weight: 700; white-space: nowrap; }
   .cal-nav button {
     border: 2px solid var(--theme); background: #fff; color: var(--theme); border-radius: 10px;
-    padding: 6px 12px; font-size: 16px; font-weight: 700; min-height: 44px;
+    padding: 6px 10px; font-size: 16px; font-weight: 700; min-height: 44px; white-space: nowrap;
   }
   .cal-nav button:disabled { border-color: var(--line); color: var(--busy-text); }
   .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
@@ -285,6 +287,12 @@
   .report-list { list-style: none; margin: 6px 0 0; padding: 0; }
   .report-list li { padding: 6px 0; border-bottom: 1px solid var(--line); }
   .report-note { background: var(--pick-soft); border: 2px solid var(--pick); border-radius: 12px; padding: 12px 14px; font-weight: 700; white-space: pre-line; margin-top: 8px; }
+  /* 管理者タブ */
+  .admin-report { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; font-size: 17px; line-height: 1.6; white-space: pre-wrap; user-select: text; -webkit-user-select: text; }
+  .ar-row {
+    display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; gap: 8px;
+    border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 10px 12px; margin-top: 8px; font-size: 17px; font-weight: 700; color: var(--text); min-height: 48px;
+  }
   .report-photos { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
   .report-photos button { border: 0; padding: 0; background: var(--busy-bg); border-radius: 8px; width: 120px; height: 120px; color: var(--muted); font-size: 14px; }
   .report-photos img { width: 120px; height: 120px; object-fit: cover; border-radius: 8px; display: block; }
@@ -301,6 +309,7 @@
   <button class="tab" role="tab" id="tab-reserve" aria-selected="true">予約する</button>
   <button class="tab" role="tab" id="tab-calendar" aria-selected="false">空きカレンダー</button>
   <button class="tab" role="tab" id="tab-list" aria-selected="false">自分の予約</button>
+  <button class="tab hidden" role="tab" id="tab-admin" aria-selected="false">管理者</button>
 </nav>
 
 <main>
@@ -448,6 +457,28 @@
   <!-- ===== 自分の予約（確認・取消） ===== -->
   <section id="view-list" class="hidden">
     <div id="list-body"></div>
+  </section>
+
+  <!-- ===== 管理者（管理者にだけタブを出す） ===== -->
+  <section id="view-admin" class="hidden">
+    <div class="step">
+      <h2 style="margin-bottom:4px">利用状況レポート</h2>
+      <p class="guide">月を切り替えると、その月の団体ごとの利用回数が出ます。今日より後の予約も数えます。</p>
+      <div class="cal-nav">
+        <button id="ar-prev" aria-label="前の月">‹ 前の月</button>
+        <div class="cal-title" id="ar-title"></div>
+        <button id="ar-next" aria-label="次の月">次の月 ›</button>
+      </div>
+      <div class="admin-report" id="ar-text"></div>
+      <button class="btn-secondary" id="ar-copy">この文字をコピーする</button>
+      <p class="guide" style="margin:8px 0 0;font-size:15px">コピーすると、役員のグループのトークなどに貼り付けて送れます。</p>
+      <div id="ar-unreported"></div>
+    </div>
+    <div class="step">
+      <h2 style="margin-bottom:4px">予約の原本</h2>
+      <p class="guide">全員の予約が、1件1行の表で見られます。団体の一覧や退出チェックの項目も、ここで直せます。</p>
+      <button class="btn-secondary" id="admin-sheet">スプレッドシートを開く</button>
+    </div>
   </section>
 </main>
 
@@ -1451,8 +1482,65 @@ async function bookFromVc() {
   if (['free', 'some'].includes(dayStatus(date))) selectDate(date);
 }
 
+// ===== 管理者タブ =====
+function renderAdminMonth() {
+  const [y, m] = state.arMonth.split('-').map(Number);
+  $('ar-title').textContent = `${y}年${m}月`;
+  $('ar-next').disabled = state.arMonth >= state.rules.maxDate.slice(0, 7);
+}
+async function loadAdminReport(preloaded) {
+  const month = state.arMonth;
+  renderAdminMonth();
+  $('ar-text').textContent = '読み込み中…';
+  $('ar-copy').disabled = true;
+  $('ar-unreported').innerHTML = '';
+  let res;
+  try {
+    res = preloaded || await apiPost({ api: 'usageReport', month });
+  } catch (e) {
+    if (state.arMonth === month) $('ar-text').textContent = e.message;
+    return;
+  }
+  if (state.arMonth !== month) return;  // 続けて月を切り替えたときは、前の月の結果で上書きしない
+  state.arText = res.text;
+  $('ar-text').textContent = res.text;
+  $('ar-copy').disabled = false;
+  $('ar-unreported').innerHTML = res.unreported.length ? `
+    <h3 style="margin:20px 0 0;font-size:18px">退出チェックの報告がなかった予約</h3>
+    <p class="guide" style="margin:4px 0 0;font-size:15px">押すと、申し込んだ人などが見られます。</p>
+    ${res.unreported.map(r => `<button class="ar-row" data-report="${esc(r.id)}">
+      <span>${esc(dispDate(r.date))} ${esc(dispTime(r.start))}〜<br>${esc(r.organization)}</span><span aria-hidden="true">›</span></button>`).join('')}` : '';
+}
+async function changeAdminMonth(diff) {
+  state.arMonth = shiftMonth(state.arMonth, diff);
+  await loadAdminReport();
+}
+// LINE の中の画面では navigator.clipboard が使えないことがあるため、使えなければ昔ながらの方法でコピーする
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* 下の方法で試す */ }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  ta.remove();
+  return ok;
+}
+async function copyAdminReport() {
+  const ok = await copyText(state.arText || '');
+  showNotice(ok ? 'コピーしました。\nグループのトークを開き、文字を入れるところを長押しして「ペースト」を押すと貼り付けられます。'
+    : 'コピーできませんでした。\nレポートの文字を長押しして選び、コピーしてください。');
+}
+function openSpreadsheet() {
+  // LINE の中のブラウザでは Google にログインしていないことが多いため、いつものブラウザで開く
+  liff.openWindow({ url: state.config.spreadsheetUrl, external: true });
+}
+
 // ===== タブ =====
-const TABS = ['reserve', 'calendar', 'list'];
+const TABS = ['reserve', 'calendar', 'list', 'admin'];
 function currentTab() { return TABS.find(t => $(`tab-${t}`).getAttribute('aria-selected') === 'true'); }
 async function switchTab(tab) {
   TABS.forEach(t => {
@@ -1462,6 +1550,7 @@ async function switchTab(tab) {
   updateProgress();
   window.scrollTo(0, 0);
   if (tab === 'list' && !state.listLoaded) await loadList();
+  if (tab === 'admin' && !state.arText) await loadAdminReport();
   if (tab === 'calendar') {
     if (!state.calByMonth[state.vcMonth]) {
       renderVcCalendar();
@@ -1482,6 +1571,12 @@ function bindEvents() {
   $('tab-reserve').onclick = () => switchTab('reserve');
   $('tab-list').onclick = () => switchTab('list');
   $('tab-calendar').onclick = () => switchTab('calendar');
+  $('tab-admin').onclick = () => switchTab('admin');
+  $('ar-prev').onclick = () => changeAdminMonth(-1);
+  $('ar-next').onclick = () => changeAdminMonth(1);
+  $('ar-copy').onclick = copyAdminReport;
+  $('ar-unreported').onclick = e => { const b = e.target.closest('[data-report]'); if (b) openReport(b.dataset.report); };
+  $('admin-sheet').onclick = openSpreadsheet;
   $('vc-prev').onclick = () => changeVcMonth(-1);
   $('vc-next').onclick = () => changeVcMonth(1);
   $('vc-grid').onclick = e => { const b = e.target.closest('[data-vcdate]'); if (b && !b.disabled) selectVcDate(b.dataset.vcdate); };
@@ -1600,6 +1695,8 @@ async function main() {
     const configPromise = apiPost({ api: 'init' });
     if (tab === 'calendar') preloads.push(loadVcMonth(thisMonth).catch(() => {}));
     if (tab === 'list') preloads.push(loadList());
+    // 管理者タブ: 管理者かどうかは初期情報が届くまでわからないが、レポートも同時に頼んでおく（管理者でなければ断られるだけ）
+    const reportPromise = tab === 'admin' ? apiPost({ api: 'usageReport', month: thisMonth }).catch(() => null) : null;
     const config = await configPromise;
     await Promise.all(preloads);
 
@@ -1608,14 +1705,26 @@ async function main() {
     state.slots = buildSlots();
     state.viewMonth = config.today.slice(0, 7);
     state.vcMonth = config.today.slice(0, 7);
+    state.arMonth = config.today.slice(0, 7);
     fillApplicantForm(config.applicant);
+    if (config.isAdmin) {
+      $('tab-admin').classList.remove('hidden');
+      document.querySelector('.tabs').classList.add('with-admin');
+      $('tab-list').textContent = '全員の予約';  // 管理者の「自分の予約」には全員の予約が出る
+    }
 
     bindEvents();
     if (tab === 'reserve') await loadMonth(state.viewMonth);  // 端末の時計がずれていて月が違ったときだけ読み直す
     renderCalendar();
     renderDetail();
     renderPerson();
-    await switchTab(tab);
+    if (tab === 'admin' && config.isAdmin) {
+      const preloaded = await reportPromise;
+      await loadAdminReport(preloaded && preloaded.month === state.arMonth ? preloaded : null);
+      await switchTab('admin');
+    } else {
+      await switchTab(tab === 'admin' ? 'reserve' : tab);  // 管理者でない人が管理者タブのリンクを開いたときは、予約するタブ
+    }
     // 「退出チェックのお願い」のボタン（?tab=list&check=予約ID）から開いたときは、報告画面を直接開く
     // 退出チェックのリンクから開いたとき: 予約IDがわかればその報告画面を、
     // わからなければ（館内の QR コード ?check=select など）予約を選ぶ画面を開く

@@ -162,6 +162,22 @@
   .check-row { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; font-size: 17px; }
   .check-row input { width: 26px; height: 26px; margin-top: 2px; flex: none; accent-color: var(--theme); }
 
+  /* 毎週の一括予約 */
+  .repeat { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 2px; }
+  .repeat .check-row { font-weight: 700; font-size: 18px; }
+  .repeat-dates { display: flex; flex-direction: column; gap: 6px; }
+  .rd {
+    display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; min-height: 50px; padding: 8px 12px;
+    border: 2px solid var(--line); border-radius: 10px; background: #fff; font-size: 17px; font-weight: 700; color: var(--text); text-align: left;
+  }
+  .rd .s { font-size: 15px; white-space: nowrap; }
+  .rd[aria-pressed="true"] { border-color: var(--theme); background: var(--theme-soft); }
+  .rd[aria-pressed="true"] .s { color: var(--theme); }
+  .rd[aria-pressed="false"] .s { color: var(--muted); }
+  .rd:disabled { background: var(--busy-bg); border-color: var(--busy-bg); color: var(--busy-text); }
+  .repeat-count { margin: 10px 0 0; font-size: 18px; font-weight: 700; color: var(--theme); }
+  .res-series { display: inline-block; margin-top: 6px; padding: 2px 10px; border-radius: 999px; background: var(--theme-soft); color: var(--theme); font-weight: 700; font-size: 15px; }
+
   /* 下部の確定ボタン */
   .submit-bar {
     position: fixed; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.97); border-top: 1px solid var(--line);
@@ -348,6 +364,17 @@
         </div>
         <button class="btn-small" id="time-reset">選び直す</button>
       </div>
+      <div class="repeat hidden" id="repeat-block">
+        <label class="check-row">
+          <input type="checkbox" id="repeat">
+          <span id="repeat-label"></span>
+        </label>
+        <div class="hidden" id="repeat-body">
+          <p class="guide" style="margin-top:10px">予約できる最後の日までの日にちです。予約しない日は、押すと外せます。</p>
+          <div class="repeat-dates" id="repeat-dates"></div>
+          <p class="repeat-count" id="repeat-count"></p>
+        </div>
+      </div>
     </div>
 
     <div class="step hidden" id="step-detail">
@@ -505,6 +532,7 @@
     <h3 id="cancel-title">この予約を取り消しますか？</h3>
     <table class="summary" id="cancel-table"></table>
     <button class="btn-primary" id="btn-cancel-yes" style="background:var(--alert)">取り消す</button>
+    <button class="btn-danger hidden" id="btn-cancel-series"></button>
     <button class="btn-secondary" id="btn-cancel-no">取り消さない</button>
   </div>
 </div>
@@ -639,6 +667,8 @@ const state = {
   vcMonth: null,
   vcDate: null,
   modifying: null,    // 変更中の予約（自分の予約の一覧から渡されたもの）。新規予約のときは null
+  repeat: false,      // 毎週の一括予約にするか
+  repeatOff: new Set(), // 一括予約で、外した日（'yyyy-MM-dd'）
 };
 
 // ===== API =====
@@ -781,6 +811,7 @@ function renderCalendar() {
 function selectDate(date) {
   state.date = date;
   resetTime();
+  resetRepeat();
   renderCalendar();
   renderSlots();
   $('step-time').classList.remove('hidden');
@@ -823,7 +854,68 @@ function renderSlots() {
   } else {
     $('time-result').classList.add('hidden');
   }
+  renderRepeat();
   updateProgress();
+}
+
+// ===== 2'. 毎週の一括予約 =====
+function addDays(ymd, n) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d + n));
+  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
+}
+function weekdayOf(ymd) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return DOW[new Date(y, m - 1, d).getDay()];
+}
+function resetRepeat() {
+  state.repeat = false;
+  state.repeatOff = new Set();
+  $('repeat').checked = false;
+}
+// 選んだ日の翌週から、予約できる最後の日までの同じ曜日。選んだ時間に予約が入っている日は 'busy'
+function repeatCandidates() {
+  if (!state.date || state.startIdx === null) return [];
+  const s = state.slots[state.startIdx].start, e = state.slots[state.endIdx].end;
+  const list = [];
+  for (let date = addDays(state.date, 7); date <= state.rules.maxDate; date = addDays(date, 7)) {
+    const loaded = Boolean(state.busyByMonth[date.slice(0, 7)]);
+    const busy = busyFor(date).some(b => b.start < e && s < b.end);
+    list.push({ date, status: !loaded ? 'pending' : busy ? 'busy' : 'free' });
+  }
+  return list;
+}
+// 予約する日の一覧（最初に選んだ日を含む）。毎週の予約にしていなければ、選んだ日だけ
+function selectedDates() {
+  if (!state.repeat) return [state.date];
+  return [state.date, ...repeatCandidates().filter(c => c.status === 'free' && !state.repeatOff.has(c.date)).map(c => c.date)];
+}
+function renderRepeat() {
+  const candidates = repeatCandidates();
+  // 変更のときと、翌週がもう予約できる期間の外のときは出さない
+  const show = !state.modifying && state.startIdx !== null && candidates.length > 0;
+  $('repeat-block').classList.toggle('hidden', !show);
+  if (!show) return;
+  $('repeat-label').textContent = `毎週${weekdayOf(state.date)}曜日の同じ時間で予約する`;
+  $('repeat-body').classList.toggle('hidden', !state.repeat);
+  if (!state.repeat) return;
+  const row = (date, label, attrs) => `<button class="rd" ${attrs}><span>${esc(dispDate(date))}</span><span class="s">${label}</span></button>`;
+  $('repeat-dates').innerHTML = row(state.date, '✓ 最初の日', 'aria-pressed="true" disabled style="background:var(--theme-soft);border-color:var(--theme);color:var(--text)"')
+    + candidates.map(c => c.status === 'free'
+      ? row(c.date, state.repeatOff.has(c.date) ? '予約しない' : '✓ 予約する', `data-rd="${c.date}" aria-pressed="${!state.repeatOff.has(c.date)}"`)
+      : row(c.date, c.status === 'busy' ? '予約あり（選べません）' : '読み込み中', 'disabled')).join('');
+  $('repeat-count').textContent = `全部で ${selectedDates().length}回 予約します`;
+}
+async function toggleRepeat(on) {
+  state.repeat = on;
+  if (on) {
+    // 予約できる最後の月までの空き状況を読む
+    const months = [];
+    for (let mo = state.date.slice(0, 7); mo <= state.rules.maxDate.slice(0, 7); mo = shiftMonth(mo, 1)) months.push(mo);
+    renderRepeat();
+    try { await Promise.all(months.map(loadMonth)); } catch (e) { showNotice(e.message); }
+  }
+  renderRepeat();
 }
 /**
  * 時間枠を押したときの処理。選んだ枠が必ず連続するよう、
@@ -941,6 +1033,7 @@ function collect() {
       address: $('rp-address').value.trim(),
     },
     isProxy: state.isProxy,
+    ...(state.repeat && !state.modifying ? { dates: selectedDates() } : {}),
   };
 }
 function firstProblem(r) {
@@ -965,9 +1058,14 @@ function updateProgress() {
   $('submit-bar').classList.toggle('hidden', !visible || currentTab() !== 'reserve');
   $('submit-msg').classList.add('hidden');
 }
+// 毎週の予約は「毎週○曜日（全○回）」と日付の一覧を出す
+function dateRowValue(r) {
+  if (!r.dates || r.dates.length <= 1) return dispDate(r.date);
+  return `毎週${weekdayOf(r.dates[0])}曜日（全${r.dates.length}回）\n${r.dates.map(dispDate).join('\n')}`;
+}
 function reservationRows(r) {
   return [
-    ['日にち', dispDate(r.date), true],
+    ['日にち', dateRowValue(r), true],
     ['時間', `${dispTime(r.start)} 〜 ${dispTime(r.end)}`, true],
     ['団体', r.organization],
     ['使い方', r.purpose],
@@ -1000,15 +1098,21 @@ async function submitReservation() {
   $('confirm-overlay').classList.add('hidden');
   showLoading(m ? '変更しています…' : '予約しています…');
   try {
+    let skippedRows = [];
     if (m) {
       await apiPost({ api: 'modify', reservationId: m.id, reservation: r });
     } else {
-      await apiPost({ api: 'reserve', reservation: r });
+      const res = await apiPost({ api: 'reserve', reservation: r });
+      // 毎週の予約で、押した時点でほかの予約が入っていた日は除いて予約されている
+      if (r.dates) r.dates = res.reservations.map(x => x.date);
+      if (res.skipped && res.skipped.length) {
+        skippedRows = [['予約できなかった日', `${res.skipped.map(dispDate).join('\n')}\n（ほかの方の予約が入っていました）`]];
+      }
     }
     $('done-title').textContent = m ? '予約を変更しました' : '予約が完了しました';
-    $('done-table').innerHTML = summaryRows([...modifyingRows(), ...reservationRows(r).slice(0, 4)]);
+    $('done-table').innerHTML = summaryRows([...modifyingRows(), ...reservationRows(r).slice(0, 4), ...skippedRows]);
     $('done-screen').classList.remove('hidden');
-    [r.date, m && m.date].filter(Boolean).forEach(d => {
+    [...(r.dates || [r.date]), m && m.date].filter(Boolean).forEach(d => {
       delete state.busyByMonth[d.slice(0, 7)];
       delete state.calByMonth[d.slice(0, 7)];
     });
@@ -1017,7 +1121,7 @@ async function submitReservation() {
   } catch (e) {
     showNotice(e.message);
     // 予約が埋まった可能性があるため、空き状況を読み直す
-    delete state.busyByMonth[r.date.slice(0, 7)];
+    (r.dates || [r.date]).forEach(d => { delete state.busyByMonth[d.slice(0, 7)]; });
     await loadMonth(r.date.slice(0, 7)).catch(() => {});
     resetTime();
     renderCalendar();
@@ -1030,7 +1134,7 @@ async function submitReservation() {
 // 予約タブの入力をすべて空に戻し、新規予約の状態にする
 function resetReserveForm() {
   state.modifying = null;
-  state.date = null; resetTime(); state.org = null; state.gaikaku = null;
+  state.date = null; resetTime(); resetRepeat(); state.org = null; state.gaikaku = null;
   state.editingApplicant = false; state.isProxy = false; $('proxy').checked = false; state.sameAsApplicant = true;
   ['org-other', 'purpose', 'rp-name', 'rp-phone', 'rp-address'].forEach(id => { $(id).value = ''; });
   fillApplicantForm(state.config.applicant);
@@ -1038,6 +1142,7 @@ function resetReserveForm() {
   // 隠した時間の欄に、前回選んだ時間の表示が残らないようにする
   $('slots').innerHTML = '';
   $('time-result').classList.add('hidden');
+  $('repeat-block').classList.add('hidden');
   renderModifyMode();
 }
 // 変更中かどうかで、帯・確認画面の見出し・ボタンの文言を切り替える
@@ -1294,8 +1399,11 @@ async function openReport(reservationId) {
     const photos = rep.photoCount
       ? `<div class="report-photos">${Array.from({ length: rep.photoCount }, (_, i) => `<button data-photo="${i}" disabled>読み込み中…</button>`).join('')}</div>`
       : '';
-    html += `<div class="field"><div class="label">気づいたこと</div>${rep.note || rep.photoCount
-      ? `<div class="report-note">${rep.note ? esc(rep.note) : '（写真のみ）'}${photos}</div>` : '<div class="guide">（なし）</div>'}</div>`;
+    const photoError = rep.photoError
+      ? `<div class="error-box" style="font-size:16px">写真が付いていましたが、保存できませんでした。システム担当に次の文を伝えてください。<br><small style="font-weight:400;word-break:break-all">${esc(rep.photoError)}</small></div>`
+      : '';
+    html += `<div class="field"><div class="label">気づいたこと</div>${rep.note || rep.photoCount || rep.photoError
+      ? `<div class="report-note">${rep.note ? esc(rep.note) : '（写真のみ）'}${photos}${photoError}</div>` : '<div class="guide">（なし）</div>'}</div>`;
     html += `<div class="field"><div class="label">チェックした項目</div><ul class="report-list">${rep.checked.map(t => `<li>✓ ${esc(t)}</li>`).join('')}</ul></div>`;
     if (rep.conditions.length) {
       html += `<div class="field"><div class="label">質問への回答</div><ul class="report-list">${rep.conditions.map(t => `<li>${esc(t)}</li>`).join('')}</ul></div>`;
@@ -1339,6 +1447,7 @@ async function loadList() {
         <div class="res-date">${esc(dispDate(r.date))}</div>
         <div class="res-time">${esc(dispTime(r.start))} 〜 ${esc(dispTime(r.end))}</div>
         <div class="res-meta">${esc(r.organization)}／${esc(r.purpose)}</div>
+        ${r.seriesId ? `<div class="res-series">毎週${weekdayOf(r.date)}曜日の予約</div>` : ''}
         ${res.isAdmin ? `<div class="res-meta">申し込み：${esc(r.applicantName)} 様</div>` : ''}
         ${r.checkReported ? '<div class="res-reported">✓ 退出チェック報告済み</div>' : ''}
         ${r.canReport ? `<button class="btn-check" data-check='${json}'>退出チェックを報告する</button>` : ''}
@@ -1358,23 +1467,34 @@ function openCancel(r) {
     ['団体', r.organization],
     ['使い方', r.purpose],
   ]);
+  // 毎週の予約で、この日より後にも同じ繰り返しの予約があれば、まとめて取り消すボタンを出す
+  const later = seriesFrom(r);
+  $('btn-cancel-series').classList.toggle('hidden', later.length <= 1);
+  $('btn-cancel-series').textContent = `この日以降の毎週の予約（${later.length}回）をまとめて取り消す`;
   $('cancel-overlay').classList.remove('hidden');
 }
-async function doCancel() {
+function seriesFrom(r) {
+  if (!r.seriesId) return [r];
+  return (state.listItems || []).filter(x => x.seriesId === r.seriesId && x.date >= r.date);
+}
+async function doCancel(series = false) {
   $('cancel-overlay').classList.add('hidden');
   showLoading('取り消しています…');
+  let res;
   try {
-    await apiPost({ api: 'cancel', reservationId: cancelTarget.id });
+    res = await apiPost({ api: 'cancel', reservationId: cancelTarget.id, series });
   } catch (e) {
     hideLoading();
     await showNotice(e.message);
     return;
   }
-  delete state.busyByMonth[cancelTarget.date.slice(0, 7)];
-  delete state.calByMonth[cancelTarget.date.slice(0, 7)];
+  (series ? seriesFrom(cancelTarget) : [cancelTarget]).forEach(x => {
+    delete state.busyByMonth[x.date.slice(0, 7)];
+    delete state.calByMonth[x.date.slice(0, 7)];
+  });
   // 取り消しは終わっているので、読み込み中の表示を閉じてからお知らせを出す（一覧の読み直しは一覧の中に表示する）
   hideLoading();
-  await showNotice('予約を取り消しました。');
+  await showNotice(series ? `${res.cancelledCount}回分の予約を取り消しました。` : '予約を取り消しました。');
   await loadList();
 }
 
@@ -1666,7 +1786,15 @@ function bindEvents() {
   $('check-back').onclick = () => $('check-screen').classList.add('hidden');
   $('modify-cancel').onclick = stopModify;
   $('btn-cancel-no').onclick = () => $('cancel-overlay').classList.add('hidden');
-  $('btn-cancel-yes').onclick = doCancel;
+  $('btn-cancel-yes').onclick = () => doCancel(false);
+  $('btn-cancel-series').onclick = () => doCancel(true);
+  $('repeat').onchange = e => toggleRepeat(e.target.checked);
+  $('repeat-dates').onclick = e => {
+    const b = e.target.closest('[data-rd]'); if (!b) return;
+    const d = b.dataset.rd;
+    state.repeatOff.has(d) ? state.repeatOff.delete(d) : state.repeatOff.add(d);
+    renderRepeat();
+  };
 }
 
 // ===== 起動 =====

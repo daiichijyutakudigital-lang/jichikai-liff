@@ -1399,8 +1399,11 @@ async function openReport(reservationId) {
     const photos = rep.photoCount
       ? `<div class="report-photos">${Array.from({ length: rep.photoCount }, (_, i) => `<button data-photo="${i}" disabled>読み込み中…</button>`).join('')}</div>`
       : '';
-    html += `<div class="field"><div class="label">気づいたこと</div>${rep.note || rep.photoCount
-      ? `<div class="report-note">${rep.note ? esc(rep.note) : '（写真のみ）'}${photos}</div>` : '<div class="guide">（なし）</div>'}</div>`;
+    const photoError = rep.photoError
+      ? `<div class="error-box" style="font-size:16px">写真が付いていましたが、保存できませんでした。システム担当に次の文を伝えてください。<br><small style="font-weight:400;word-break:break-all">${esc(rep.photoError)}</small></div>`
+      : '';
+    html += `<div class="field"><div class="label">気づいたこと</div>${rep.note || rep.photoCount || rep.photoError
+      ? `<div class="report-note">${rep.note ? esc(rep.note) : '（写真のみ）'}${photos}${photoError}</div>` : '<div class="guide">（なし）</div>'}</div>`;
     html += `<div class="field"><div class="label">チェックした項目</div><ul class="report-list">${rep.checked.map(t => `<li>✓ ${esc(t)}</li>`).join('')}</ul></div>`;
     if (rep.conditions.length) {
       html += `<div class="field"><div class="label">質問への回答</div><ul class="report-list">${rep.conditions.map(t => `<li>${esc(t)}</li>`).join('')}</ul></div>`;

@@ -699,6 +699,7 @@ const state = {
   sameAsApplicant: true,
   listLoaded: false,
   calByMonth: {},     // 空きカレンダー: 'yyyy-MM' -> [{date, start, end, organization}]
+  holidays: new Set(), // 読み込んだ月の祝日（'yyyy-MM-dd'）
   vcMonth: null,
   vcDate: null,
   modifying: null,    // 変更中の予約（自分の予約の一覧から渡されたもの）。新規予約のときは null
@@ -802,10 +803,14 @@ async function loadMonth(month) {
   try {
     const res = await apiGet({ api: 'availability', month });
     state.busyByMonth[month] = res.busy;
+    addHolidays(res.holidays);
   } finally {
     $('cal-loading').classList.add('hidden');
   }
 }
+// 祝日は日曜と同じ赤にする（祝日の名前はマスに入らないので出さない）
+function addHolidays(dates) { (dates || []).forEach(d => state.holidays.add(d)); }
+function dowClass(date, dow) { return dow === 0 || state.holidays.has(date) ? 'sun' : dow === 6 ? 'sat' : ''; }
 function shiftMonth(month, diff) {
   const [y, m] = month.split('-').map(Number);
   const d = new Date(y, m - 1 + diff, 1);
@@ -837,7 +842,7 @@ function renderCalendar() {
     const status = loaded ? dayStatus(date) : (date < state.rules.today || date > state.rules.maxDate ? 'out' : 'pending');
     const mark = { free: '○', some: '△', full: '×', out: '', pending: '' }[status];
     const selectable = status === 'free' || status === 'some';
-    const cls = ['cal-day', status, dow === 0 ? 'sun' : dow === 6 ? 'sat' : '', state.date === date ? 'selected' : ''].join(' ');
+    const cls = ['cal-day', status, dowClass(date, dow), state.date === date ? 'selected' : ''].join(' ');
     const label = `${m}月${d}日 ${{ free: '空いています', some: '一部空き', full: '満室', out: '予約できません', pending: '読み込み中' }[status]}`;
     html += `<button class="${cls}" data-date="${date}" ${selectable ? '' : 'disabled'} aria-label="${label}"><span class="d">${d}</span><span class="m">${mark}</span></button>`;
   }
@@ -1541,6 +1546,7 @@ async function loadVcMonth(month) {
   try {
     const res = await apiPost({ api: 'calendar', month });
     state.calByMonth[month] = res.reservations;
+    addHolidays(res.holidays);
   } finally {
     $('vc-loading').classList.add('hidden');
   }
@@ -1582,7 +1588,7 @@ function renderVcCalendar() {
     const full = !past && !out && vcFreeSlotCount(date) === 0;
     const kind = out ? 'out' : past ? 'vc-past' : full ? 'vc-full' : count ? 'vc-some' : 'vc-none';
     const mark = out ? '' : full ? '満' : count ? `${count}件` : (past ? '' : '○');
-    const cls = ['cal-day', 'vc', kind, dow === 0 ? 'sun' : dow === 6 ? 'sat' : '', state.vcDate === date ? 'selected' : ''].join(' ');
+    const cls = ['cal-day', 'vc', kind, dowClass(date, dow), state.vcDate === date ? 'selected' : ''].join(' ');
     const label = `${m}月${d}日 ${count ? `予約${count}件` : '予約なし'}`;
     html += `<button class="${cls}" data-vcdate="${date}" ${out ? 'disabled' : ''} aria-label="${label}"><span class="d">${d}</span><span class="m">${mark}</span></button>`;
   }

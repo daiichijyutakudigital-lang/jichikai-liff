@@ -309,6 +309,20 @@
     display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; gap: 8px;
     border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 10px 12px; margin-top: 8px; font-size: 17px; font-weight: 700; color: var(--text); min-height: 48px;
   }
+  /* 団体の一覧の編集（管理者） */
+  .oe-group { margin: 18px 0 0; font-size: 18px; }
+  .oe-row { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 10px; margin-top: 8px; }
+  .oe-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .oe-actions button, .oe-add button {
+    flex: 1 1 auto; border: 2px solid var(--theme); background: #fff; color: var(--theme); border-radius: 8px;
+    min-height: 44px; padding: 4px 8px; font-size: 15px; font-weight: 700; white-space: nowrap;
+  }
+  .oe-actions button:disabled { border-color: var(--line); color: var(--busy-text); }
+  .oe-actions .oe-del { border-color: var(--alert); color: var(--alert); }
+  .oe-add { display: flex; gap: 8px; margin-top: 10px; }
+  .oe-add .text-input { flex: 1; min-width: 0; }
+  .oe-add button { flex: none; padding: 4px 16px; font-size: 17px; }
+  .oe-status { color: var(--alert); font-weight: 700; font-size: 16px; margin: 16px 0 8px; }
   .report-photos { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
   .report-photos button { border: 0; padding: 0; background: var(--busy-bg); border-radius: 8px; width: 120px; height: 120px; color: var(--muted); font-size: 14px; }
   .report-photos img { width: 120px; height: 120px; object-fit: cover; border-radius: 8px; display: block; }
@@ -501,9 +515,30 @@
       <p class="guide" style="margin:8px 0 0;font-size:15px">コピーすると、役員のグループのトークなどに貼り付けて送れます。</p>
       <div id="ar-unreported"></div>
     </div>
+    <div class="step" id="org-editor">
+      <h2 style="margin-bottom:4px">団体の一覧</h2>
+      <p class="guide">予約の画面に、この順番で並びます。「その他団体」などは自動で出るので、入れなくてかまいません。<br>名前を変えても、これまでの予約の団体名は変わりません。</p>
+      <div id="oe-body">
+        <h3 class="oe-group">団体</h3>
+        <div id="oe-normal"></div>
+        <div class="oe-add">
+          <input class="text-input" id="oe-new-normal" maxlength="30" placeholder="団体の名前" aria-label="追加する団体の名前">
+          <button data-oe-add="normal">追加</button>
+        </div>
+        <h3 class="oe-group">外郭団体</h3>
+        <div id="oe-gaikaku"></div>
+        <div class="oe-add">
+          <input class="text-input" id="oe-new-gaikaku" maxlength="30" placeholder="外郭団体の名前" aria-label="追加する外郭団体の名前">
+          <button data-oe-add="gaikaku">追加</button>
+        </div>
+        <p class="oe-status hidden" id="oe-status"></p>
+        <button class="btn-primary" id="oe-save" disabled>この内容で保存する</button>
+      </div>
+      <p class="guide hidden" id="oe-loading">読み込み中…</p>
+    </div>
     <div class="step">
       <h2 style="margin-bottom:4px">予約の原本</h2>
-      <p class="guide">全員の予約が、1件1行の表で見られます。団体の一覧や退出チェックの項目も、ここで直せます。</p>
+      <p class="guide">全員の予約が、1件1行の表で見られます。退出チェックの項目も、ここで直せます。</p>
       <button class="btn-secondary" id="admin-sheet">スプレッドシートを開く</button>
     </div>
   </section>
@@ -1659,6 +1694,97 @@ function openSpreadsheet() {
   liff.openWindow({ url: state.config.spreadsheetUrl, external: true });
 }
 
+// ----- 団体の一覧の編集 -----
+// state.oe: { before: 読み込んだときの一覧, normal: [...], gaikaku: [...] }。「保存する」を押すまでは画面の中だけで直す
+const OE_KINDS = ['normal', 'gaikaku'];
+function setOrgEditor(list) {
+  state.oe = { before: list, normal: [...list.normal], gaikaku: [...list.gaikaku] };
+}
+function orgEditorDirty() {
+  const oe = state.oe;
+  return JSON.stringify([oe.normal, oe.gaikaku]) !== JSON.stringify([oe.before.normal, oe.before.gaikaku]);
+}
+function updateOrgStatus(message) {
+  const dirty = orgEditorDirty();
+  $('oe-save').disabled = !dirty;
+  const text = message || (dirty ? 'まだ保存していません。直し終わったら「この内容で保存する」を押してください。' : '');
+  $('oe-status').textContent = text;
+  $('oe-status').classList.toggle('hidden', !text);
+}
+function renderOrgEditor() {
+  OE_KINDS.forEach(kind => {
+    const names = state.oe[kind];
+    const other = kind === 'normal' ? '外郭団体へ' : '団体へ';
+    $(`oe-${kind}`).innerHTML = names.length ? names.map((name, i) => `
+      <div class="oe-row">
+        <input class="text-input" data-oe-name="${kind}" data-i="${i}" value="${esc(name)}" maxlength="30" aria-label="団体の名前">
+        <div class="oe-actions">
+          <button data-oe="up" data-kind="${kind}" data-i="${i}" ${i === 0 ? 'disabled' : ''}>↑ 上へ</button>
+          <button data-oe="down" data-kind="${kind}" data-i="${i}" ${i === names.length - 1 ? 'disabled' : ''}>↓ 下へ</button>
+          <button data-oe="move" data-kind="${kind}" data-i="${i}">${other}</button>
+          <button class="oe-del" data-oe="del" data-kind="${kind}" data-i="${i}">削除</button>
+        </div>
+      </div>`).join('') : '<p class="guide" style="margin:8px 0 0">ありません。</p>';
+  });
+  updateOrgStatus();
+}
+async function loadOrgEditor(preloaded) {
+  $('oe-body').classList.add('hidden');
+  $('oe-loading').textContent = '読み込み中…';
+  $('oe-loading').classList.remove('hidden');
+  let res;
+  try {
+    res = preloaded || await apiPost({ api: 'organizations' });
+  } catch (e) {
+    $('oe-loading').textContent = e.message;
+    return;
+  }
+  setOrgEditor({ normal: res.normal, gaikaku: res.gaikaku });
+  $('oe-loading').classList.add('hidden');
+  $('oe-body').classList.remove('hidden');
+  renderOrgEditor();
+}
+function editOrg(act, kind, i) {
+  const list = state.oe[kind];
+  if (act === 'up' && i > 0) [list[i - 1], list[i]] = [list[i], list[i - 1]];
+  if (act === 'down' && i < list.length - 1) [list[i], list[i + 1]] = [list[i + 1], list[i]];
+  if (act === 'move') state.oe[kind === 'normal' ? 'gaikaku' : 'normal'].push(list.splice(i, 1)[0]);
+  if (act === 'del') list.splice(i, 1);
+  renderOrgEditor();
+}
+function addOrg(kind) {
+  const input = $(`oe-new-${kind}`);
+  const name = input.value.trim();
+  if (!name) { showToast('追加する名前を入れてください。'); input.focus(); return; }
+  state.oe[kind].push(name);
+  input.value = '';
+  renderOrgEditor();
+}
+async function saveOrganizations() {
+  const oe = state.oe;
+  showLoading('保存しています…');
+  let res;
+  try {
+    res = await apiPost({ api: 'saveOrganizations', normal: oe.normal, gaikaku: oe.gaikaku, before: oe.before });
+  } catch (e) {
+    hideLoading();
+    updateOrgStatus(e.message);
+    return;
+  }
+  hideLoading();
+  setOrgEditor(res.list);
+  renderOrgEditor();
+  if (res.conflict) {
+    showNotice('保存できませんでした。\nほかの担当者か、スプレッドシートで、団体の一覧が先に直されていました。\n最新の一覧に入れ替えたので、もう一度直してから保存してください。');
+    return;
+  }
+  // 予約するタブの選択肢も、新しい一覧にする
+  state.config.organizations = res.organizations;
+  state.config.gaikakuOrganizations = res.gaikakuOrganizations;
+  renderDetail();
+  showToast('保存しました。\n予約の画面に、すぐに出ます。');
+}
+
 // ===== タブ =====
 const TABS = ['reserve', 'calendar', 'list', 'admin'];
 function currentTab() { return TABS.find(t => $(`tab-${t}`).getAttribute('aria-selected') === 'true'); }
@@ -1670,7 +1796,10 @@ async function switchTab(tab) {
   updateProgress();
   window.scrollTo(0, 0);
   if (tab === 'list' && !state.listLoaded) await loadList();
-  if (tab === 'admin' && !state.arText) await loadAdminReport();
+  if (tab === 'admin') {
+    // レポートと団体の一覧は、同時に取りに行く
+    await Promise.all([!state.arText && loadAdminReport(), !state.oe && loadOrgEditor()]);
+  }
   if (tab === 'calendar') {
     if (!state.calByMonth[state.vcMonth]) {
       renderVcCalendar();
@@ -1697,6 +1826,22 @@ function bindEvents() {
   $('ar-copy').onclick = copyAdminReport;
   $('ar-unreported').onclick = e => { const b = e.target.closest('[data-report]'); if (b) openReport(b.dataset.report); };
   $('admin-sheet').onclick = openSpreadsheet;
+  $('org-editor').onclick = e => {
+    const b = e.target.closest('[data-oe]');
+    if (b) { editOrg(b.dataset.oe, b.dataset.kind, Number(b.dataset.i)); return; }
+    const add = e.target.closest('[data-oe-add]');
+    if (add) addOrg(add.dataset.oeAdd);
+  };
+  $('org-editor').oninput = e => {
+    const input = e.target.closest('[data-oe-name]');
+    if (!input) return;
+    state.oe[input.dataset.oeName][Number(input.dataset.i)] = input.value;
+    updateOrgStatus();
+  };
+  OE_KINDS.forEach(kind => {
+    $(`oe-new-${kind}`).onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addOrg(kind); } };
+  });
+  $('oe-save').onclick = saveOrganizations;
   $('vc-prev').onclick = () => changeVcMonth(-1);
   $('vc-next').onclick = () => changeVcMonth(1);
   $('vc-grid').onclick = e => { const b = e.target.closest('[data-vcdate]'); if (b && !b.disabled) selectVcDate(b.dataset.vcdate); };
@@ -1825,6 +1970,7 @@ async function main() {
     if (tab === 'list') preloads.push(loadList());
     // 管理者タブ: 管理者かどうかは初期情報が届くまでわからないが、レポートも同時に頼んでおく（管理者でなければ断られるだけ）
     const reportPromise = tab === 'admin' ? apiPost({ api: 'usageReport', month: thisMonth }).catch(() => null) : null;
+    const orgPromise = tab === 'admin' ? apiPost({ api: 'organizations' }).catch(() => null) : null;
     const config = await configPromise;
     await Promise.all(preloads);
 
@@ -1848,7 +1994,7 @@ async function main() {
     renderPerson();
     if (tab === 'admin' && config.isAdmin) {
       const preloaded = await reportPromise;
-      await loadAdminReport(preloaded && preloaded.month === state.arMonth ? preloaded : null);
+      await Promise.all([loadAdminReport(preloaded && preloaded.month === state.arMonth ? preloaded : null), orgPromise.then(loadOrgEditor)]);
       await switchTab('admin');
     } else {
       await switchTab(tab === 'admin' ? 'reserve' : tab);  // 管理者でない人が管理者タブのリンクを開いたときは、予約するタブ

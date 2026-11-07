@@ -329,6 +329,7 @@
   .photo-viewer { align-items: center; z-index: 45; background: rgba(0,0,0,0.85); flex-direction: column; gap: 12px; padding: 16px; }
   .photo-viewer img { max-width: 100%; max-height: 80vh; border-radius: 8px; }
   .tl-row.busy .tl-what { font-weight: 700; font-size: 19px; }
+  .tl-row .tl-purpose { display: block; font-weight: 400; font-size: 16px; }
   .tl-row.free { background: var(--theme-soft); color: var(--theme); }
 </style>
 </head>
@@ -1612,7 +1613,7 @@ function renderVcDay() {
   let cursor = openingTime;
   list.forEach(r => {
     if (r.start > cursor) rows.push({ start: cursor, end: r.start, free: true });
-    rows.push({ start: r.start, end: r.end, free: false, organization: r.organization, id: r.id, checkReported: r.checkReported });
+    rows.push({ start: r.start, end: r.end, free: false, organization: r.organization, purpose: r.purpose, id: r.id, checkReported: r.checkReported });
     if (r.end > cursor) cursor = r.end;
   });
   if (cursor < closingTime) rows.push({ start: cursor, end: closingTime, free: true });
@@ -1622,7 +1623,7 @@ function renderVcDay() {
   $('vc-timeline').innerHTML = rows.map(r => {
     const inner = `
       <span class="tl-time">${esc(dispTime(r.start))}〜${esc(dispTime(r.end))}</span>
-      <span class="tl-what">${r.free ? '空き' : esc(r.organization)}</span>`;
+      <span class="tl-what">${r.free ? '空き' : esc(r.organization)}${r.purpose ? `<span class="tl-purpose">${esc(r.purpose)}</span>` : ''}</span>`;
     // 予約IDが付いている（＝管理者）ときだけ、押すと退出チェックの報告を開く
     if (r.free || !r.id) return `<div class="tl-row ${r.free ? 'free' : 'busy'}">${inner}</div>`;
     const started = date < today || (date === today && r.start <= nowTime);

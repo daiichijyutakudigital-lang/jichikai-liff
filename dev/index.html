@@ -63,6 +63,7 @@
   .tab {
     flex: 1; border: 0; background: none; padding: 14px 4px; font-size: 16px; line-height: 1.3; font-weight: 700; color: var(--muted);
     border-bottom: 4px solid transparent;
+    word-break: keep-all; /* 文字を大きくして折り返すときも、<wbr> の位置でだけ行を変える */
   }
   .tab[aria-selected="true"] { color: var(--theme); border-bottom-color: var(--theme); }
   /* 管理者は「管理者」タブが増えて4つになるため、文字の長さに合わせて幅を分け、途中で折り返さないようにする */
@@ -88,12 +89,23 @@
     padding: 6px 10px; font-size: 16px; font-weight: 700; min-height: 44px; white-space: nowrap;
   }
   .cal-nav button:disabled { border-color: var(--line); color: var(--busy-text); }
-  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  /* スマホの文字を大きくしていて1行に入らないときは、月を上の行に出し、ボタンを下の行に並べる（fitCalendars） */
+  .cal-nav.stack { flex-wrap: wrap; gap: 6px 8px; }
+  .cal-nav.stack .cal-title { order: -1; flex: 1 0 100%; text-align: center; }
+  .cal-nav.stack button { flex: 1; }
+  /* 日にちの数字がマスに入らないときは、数字を少し小さくし、マスの間をつめる（fitCalendars） */
+  .cal-grid.tight { gap: 2px; }
+  .cal-grid.tight .cal-day { padding-left: 0; padding-right: 0; }
+  .cal-grid.tight .cal-day .d { font-size: 14px; letter-spacing: -0.04em; }
+  .cal-grid.tight .cal-day .m { font-size: 12px; white-space: nowrap; }
+  /* minmax(0, 1fr)：文字を大きくしても、7列が画面からはみ出さないようにする */
+  .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
   .cal-dow { text-align: center; font-size: 15px; font-weight: 700; color: var(--muted); padding: 2px 0; }
   .cal-dow.sun { color: var(--sun); } .cal-dow.sat { color: var(--sat); }
   .cal-day {
     border: 1px solid var(--line); background: #fff; border-radius: 8px; min-height: 56px; padding: 4px 0 2px;
     display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.2;
+    min-width: 0; overflow: hidden;
   }
   .cal-day .d { font-size: 18px; font-weight: 700; }
   .cal-day .m { font-size: 16px; font-weight: 700; margin-top: 2px; }
@@ -286,8 +298,10 @@
   .cal-day.vc-full { background: var(--busy-bg); } .cal-day.vc-full .m { color: var(--busy-text); }
   .cal-day.vc-past { background: #F1F1EE; } .cal-day.vc-past .d { color: var(--busy-text); }
   .timeline { margin-top: 4px; }
-  .tl-row { display: flex; gap: 12px; align-items: baseline; padding: 12px 10px; border-radius: 10px; margin-top: 6px; }
+  /* 幅が足りないとき（文字を大きくしたときなど）は、団体名と利用目的を時間の下の行に出す */
+  .tl-row { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 12px 10px; border-radius: 10px; margin-top: 6px; }
   .tl-row .tl-time { flex: none; width: 7.2em; font-weight: 700; }
+  .tl-row .tl-what { flex: 1 1 6em; min-width: 0; overflow-wrap: anywhere; }
   .tl-row.busy { background: var(--pick-soft); border-left: 6px solid var(--pick); }
   /* 管理者だけ: 予約の行を押すと退出チェックの報告を開く */
   button.tl-row { width: 100%; text-align: left; border-top: 0; border-right: 0; border-bottom: 0; font: inherit; color: inherit; cursor: pointer; }
@@ -337,9 +351,9 @@
 
 <header class="app-header">第一住宅自治会館の予約</header>
 <nav class="tabs" role="tablist">
-  <button class="tab" role="tab" id="tab-reserve" aria-selected="true">予約する</button>
-  <button class="tab" role="tab" id="tab-calendar" aria-selected="false">空きカレンダー</button>
-  <button class="tab" role="tab" id="tab-list" aria-selected="false">自分の予約</button>
+  <button class="tab" role="tab" id="tab-reserve" aria-selected="true">予約<wbr>する</button>
+  <button class="tab" role="tab" id="tab-calendar" aria-selected="false">空き<wbr>カレンダー</button>
+  <button class="tab" role="tab" id="tab-list" aria-selected="false">自分の<wbr>予約</button>
   <button class="tab hidden" role="tab" id="tab-admin" aria-selected="false">管理者</button>
 </nav>
 
@@ -848,6 +862,7 @@ function renderCalendar() {
     html += `<button class="${cls}" data-date="${date}" ${selectable ? '' : 'disabled'} aria-label="${label}"><span class="d">${d}</span><span class="m">${mark}</span></button>`;
   }
   $('cal-grid').innerHTML = html;
+  fitCalendars();
 }
 function selectDate(date) {
   state.date = date;
@@ -1594,6 +1609,7 @@ function renderVcCalendar() {
     html += `<button class="${cls}" data-vcdate="${date}" ${out ? 'disabled' : ''} aria-label="${label}"><span class="d">${d}</span><span class="m">${mark}</span></button>`;
   }
   $('vc-grid').innerHTML = html;
+  fitCalendars();
 }
 function selectVcDate(date) {
   state.vcDate = date;
@@ -1649,6 +1665,24 @@ function renderAdminMonth() {
   const [y, m] = state.arMonth.split('-').map(Number);
   $('ar-title').textContent = `${y}年${m}月`;
   $('ar-next').disabled = state.arMonth >= state.rules.maxDate.slice(0, 7);
+  fitCalendars();
+}
+
+/**
+ * スマホの文字を大きくしていてカレンダーが入りきらないときだけ、並べ方を変える。
+ * 月の切り替え（前の月・年月・次の月）は2行に分け、日にちの数字がマスからはみ出すときは数字を小さくする。
+ * 文字の大きさの設定は CSS では分からないため、実際にはみ出しているかを測って決める。
+ */
+function fitCalendars() {
+  const overflows = el => el.scrollWidth > el.clientWidth + 1;
+  document.querySelectorAll('.cal-nav').forEach(nav => {
+    nav.classList.remove('stack');
+    if (overflows(nav)) nav.classList.add('stack');
+  });
+  document.querySelectorAll('.cal-grid').forEach(grid => {
+    grid.classList.remove('tight');
+    if ([...grid.querySelectorAll('.cal-day')].some(overflows)) grid.classList.add('tight');
+  });
 }
 async function loadAdminReport(preloaded) {
   const month = state.arMonth;
@@ -1824,6 +1858,7 @@ async function switchTab(tab) {
 
 // ===== イベント =====
 function bindEvents() {
+  window.addEventListener('resize', fitCalendars);
   $('tab-reserve').onclick = () => switchTab('reserve');
   $('tab-list').onclick = () => switchTab('list');
   $('tab-calendar').onclick = () => switchTab('calendar');

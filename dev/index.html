@@ -451,10 +451,11 @@
           <label for="ap-name">お名前</label>
           <input class="text-input" id="ap-name" maxlength="50" autocomplete="name" placeholder="例：自治 太郎">
         </div>
-        <div class="field">
+        <div class="field" id="district-field">
           <div class="label">お住まいの区</div>
           <div class="choices cols-4" id="district-choices"></div>
         </div>
+        <p class="guide hidden" id="group-skip">外郭団体で使うときは、区・班の入力はいりません。</p>
         <div class="field hidden" id="class-field">
           <div class="label">班</div>
           <div class="choices cols-4" id="class-choices"></div>
@@ -1042,10 +1043,15 @@ function organizationValue() {
 }
 
 // ===== 4. 申し込む人 =====
+// 外郭団体の予約は、区・班の入力はいらない（会員でない方も使うため）
+function isGaikakuOrg() { return state.org === '外郭団体'; }
 function renderPerson() {
   const m = state.modifying;
   const saved = m ? { name: m.applicantName, group: m.applicantGroup, phone: '' } : state.config.applicant;
-  const showSaved = Boolean(m) || (saved && !state.editingApplicant && !state.isProxy);
+  const gaikaku = isGaikakuOrg();
+  // 前回が外郭団体の予約で区・班が空のまま覚えている人は、ふつうの団体を選んだら入力欄を出して区・班を入れてもらう
+  const savedOk = saved && (saved.group || gaikaku);
+  const showSaved = Boolean(m) || (savedOk && !state.editingApplicant && !state.isProxy);
   $('proxy-row').classList.toggle('hidden', !state.config.isAdmin || Boolean(m));
   $('applicant-saved').classList.toggle('hidden', !showSaved);
   $('applicant-form').classList.toggle('hidden', showSaved);
@@ -1053,11 +1059,14 @@ function renderPerson() {
   if (showSaved) {
     $('saved-name').textContent = `${saved.name} 様`;
     $('saved-group').textContent = m ? `${saved.group}（申し込む人は変更できません）` : saved.group;
+    $('saved-group').classList.toggle('hidden', !saved.group && !m);
     $('saved-phone').textContent = saved.phone ? `電話 ${saved.phone}` : '';
   }
   const districts = Object.keys(state.config.classCounts);
   renderChoices($('district-choices'), districts.map(d => `${d}区`), state.district ? `${state.district}区` : null, 'district');
-  $('class-field').classList.toggle('hidden', !state.district);
+  $('district-field').classList.toggle('hidden', gaikaku);
+  $('group-skip').classList.toggle('hidden', !gaikaku);
+  $('class-field').classList.toggle('hidden', gaikaku || !state.district);
   if (state.district) {
     const n = state.config.classCounts[state.district];
     renderChoices($('class-choices'), Array.from({ length: n }, (_, i) => `${i + 1}班`), state.cls ? `${state.cls}班` : null, 'cls');
@@ -1077,10 +1086,10 @@ function applicantValue() {
   const m = state.modifying;
   if (m) return { name: m.applicantName, group: m.applicantGroup, phone: '' };
   const saved = state.config.applicant;
-  if (saved && !state.editingApplicant && !state.isProxy) return { ...saved };
+  if (saved && (saved.group || isGaikakuOrg()) && !state.editingApplicant && !state.isProxy) return { ...saved };
   return {
     name: $('ap-name').value.trim(),
-    group: state.district && state.cls ? `${state.district}区${state.cls}班` : '',
+    group: !isGaikakuOrg() && state.district && state.cls ? `${state.district}区${state.cls}班` : '',
     phone: $('ap-phone').value.trim(),
   };
 }
@@ -1102,6 +1111,7 @@ function collect() {
       address: $('rp-address').value.trim(),
     },
     isProxy: state.isProxy,
+    orgKind: isGaikakuOrg() ? 'gaikaku' : '',
     ...(state.repeat && !state.modifying ? { dates: selectedDates() } : {}),
   };
 }
@@ -1112,7 +1122,7 @@ function firstProblem(r) {
   if (!r.purpose) return ['何に使うかを入力してください', 'purpose'];
   if (!state.modifying) {
     if (!r.applicant.name) return ['お名前を入力してください', 'ap-name'];
-    if (!r.applicant.group) return ['区と班を選んでください', 'district-choices'];
+    if (!r.applicant.group && !isGaikakuOrg()) return ['区と班を選んでください', 'district-choices'];
     if (!/^\d{10,11}$/.test(r.applicant.phone.replace(/[-ー－\s]/g, ''))) return ['電話番号を確かめてください（10桁か11桁）', 'ap-phone'];
   }
   if (!r.sameAsApplicant) {
@@ -1138,7 +1148,7 @@ function reservationRows(r) {
     ['時間', `${dispTime(r.start)} 〜 ${dispTime(r.end)}`, true],
     ['団体', r.organization],
     ['使い方', r.purpose],
-    ['申し込む人', `${r.applicant.name} 様\n${r.applicant.group}${r.applicant.phone ? `\n電話 ${r.applicant.phone}` : ''}`],
+    ['申し込む人', `${r.applicant.name} 様${r.applicant.group ? `\n${r.applicant.group}` : ''}${r.applicant.phone ? `\n電話 ${r.applicant.phone}` : ''}`],
     ['利用責任者', r.sameAsApplicant ? '申し込む人と同じ' : `${r.responsible.name} 様\n電話 ${r.responsible.phone}\n${r.responsible.address}`],
   ];
 }
@@ -1918,7 +1928,7 @@ function bindEvents() {
 
   $('org-choices').onclick = e => {
     const b = e.target.closest('[data-org]'); if (!b) return;
-    state.org = b.dataset.org; state.gaikaku = null; renderDetail();
+    state.org = b.dataset.org; state.gaikaku = null; renderDetail(); renderPerson();
     if (state.org === 'その他団体') $('org-other').focus();
   };
   $('gaikaku-choices').onclick = e => {

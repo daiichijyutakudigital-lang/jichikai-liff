@@ -34,13 +34,17 @@
     --pick-soft: #FFF4D6;
   }
   * { box-sizing: border-box; }
-  html { -webkit-text-size-adjust: 100%; }
+  /* 文字の大きさは、ここ（html）の大きさを 1rem として、ほかはすべて rem で決める。
+     ふつうは 17px。iPhone では「文字サイズ」の設定に合わせて変わる（-apple-system-body）。
+     小さすぎ・大きすぎにならないよう、17px〜34px におさめる（fitRootFont） */
+  html { font-size: 17px; -webkit-text-size-adjust: 100%; }
+  @supports (font: -apple-system-body) { html { font: -apple-system-body; } }
   body {
     margin: 0;
     background: var(--bg);
     color: var(--text);
     font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", Meiryo, sans-serif;
-    font-size: 18px;
+    font-size: 1.0588rem;
     line-height: 1.6;
     padding-bottom: calc(110px + env(safe-area-inset-bottom));
   }
@@ -54,49 +58,61 @@
     background: var(--theme);
     color: #fff;
     padding: 14px 16px;
-    font-size: 20px;
+    font-size: 1.1765rem;
     font-weight: 700;
     text-align: center;
     letter-spacing: 0.05em;
   }
   .tabs { display: flex; background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
   .tab {
-    flex: 1; border: 0; background: none; padding: 14px 4px; font-size: 16px; line-height: 1.3; font-weight: 700; color: var(--muted);
+    flex: 1; border: 0; background: none; padding: 14px 4px; font-size: 0.9412rem; line-height: 1.3; font-weight: 700; color: var(--muted);
     border-bottom: 4px solid transparent;
+    word-break: keep-all; /* 文字を大きくして折り返すときも、<wbr> の位置でだけ行を変える */
   }
   .tab[aria-selected="true"] { color: var(--theme); border-bottom-color: var(--theme); }
   /* 管理者は「管理者」タブが増えて4つになるため、文字の長さに合わせて幅を分け、途中で折り返さないようにする */
-  .tabs.with-admin .tab { flex: 1 1 auto; padding: 14px 2px; font-size: 15px; white-space: nowrap; }
+  .tabs.with-admin .tab { flex: 1 1 auto; padding: 14px 2px; font-size: 0.8824rem; white-space: nowrap; }
 
   main { max-width: 560px; margin: 0 auto; padding: 0 16px; }
 
   .step { background: var(--card); border-radius: 14px; margin-top: 16px; padding: 18px 16px 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
-  .step h2 { margin: 0 0 12px; font-size: 20px; display: flex; align-items: center; gap: 10px; }
+  .step h2 { margin: 0 0 12px; font-size: 1.1765rem; display: flex; align-items: center; gap: 10px; }
   .num {
     display: inline-flex; align-items: center; justify-content: center; flex: none;
-    width: 34px; height: 34px; border-radius: 50%; background: var(--theme); color: #fff; font-size: 18px;
+    width: 34px; height: 34px; border-radius: 50%; background: var(--theme); color: #fff; font-size: 1.0588rem;
   }
-  .guide { margin: 0 0 12px; color: var(--muted); font-size: 17px; }
-  .guide.strong { color: var(--text); font-weight: 700; font-size: 18px; }
+  .guide { margin: 0 0 12px; color: var(--muted); font-size: 1rem; }
+  .guide.strong { color: var(--text); font-weight: 700; font-size: 1.0588rem; }
   .guide.error { color: var(--alert); font-weight: 700; }
 
   /* カレンダー */
   .cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-  .cal-title { font-size: 20px; font-weight: 700; white-space: nowrap; }
+  .cal-title { font-size: 1.1765rem; font-weight: 700; white-space: nowrap; }
   .cal-nav button {
     border: 2px solid var(--theme); background: #fff; color: var(--theme); border-radius: 10px;
-    padding: 6px 10px; font-size: 16px; font-weight: 700; min-height: 44px; white-space: nowrap;
+    padding: 6px 10px; font-size: 0.9412rem; font-weight: 700; min-height: 44px; white-space: nowrap;
   }
   .cal-nav button:disabled { border-color: var(--line); color: var(--busy-text); }
-  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-  .cal-dow { text-align: center; font-size: 15px; font-weight: 700; color: var(--muted); padding: 2px 0; }
+  /* スマホの文字を大きくしていて1行に入らないときは、月を上の行に出し、ボタンを下の行に並べる（fitCalendars） */
+  .cal-nav.stack { flex-wrap: wrap; gap: 6px 8px; }
+  .cal-nav.stack .cal-title { order: -1; flex: 1 0 100%; text-align: center; }
+  .cal-nav.stack button { flex: 1; }
+  /* 日にちの数字がマスに入らないときは、数字を少し小さくし、マスの間をつめる（fitCalendars） */
+  .cal-grid.tight { gap: 2px; }
+  .cal-grid.tight .cal-day { padding-left: 0; padding-right: 0; }
+  .cal-grid.tight .cal-day .d { font-size: 0.8235rem; letter-spacing: -0.04em; }
+  .cal-grid.tight .cal-day .m { font-size: 0.7059rem; white-space: nowrap; }
+  /* minmax(0, 1fr)：文字を大きくしても、7列が画面からはみ出さないようにする */
+  .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+  .cal-dow { text-align: center; font-size: 0.8824rem; font-weight: 700; color: var(--muted); padding: 2px 0; }
   .cal-dow.sun { color: var(--sun); } .cal-dow.sat { color: var(--sat); }
   .cal-day {
     border: 1px solid var(--line); background: #fff; border-radius: 8px; min-height: 56px; padding: 4px 0 2px;
     display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.2;
+    min-width: 0; overflow: hidden;
   }
-  .cal-day .d { font-size: 18px; font-weight: 700; }
-  .cal-day .m { font-size: 16px; font-weight: 700; margin-top: 2px; }
+  .cal-day .d { font-size: 1.0588rem; font-weight: 700; }
+  .cal-day .m { font-size: 0.9412rem; font-weight: 700; margin-top: 2px; }
   .cal-day.sun .d { color: var(--sun); } .cal-day.sat .d { color: var(--sat); }
   .cal-day.free .m { color: var(--theme); }
   .cal-day.some .m { color: #B7791F; }
@@ -107,19 +123,19 @@
   .cal-day.pending { opacity: 0.5; }
   .cal-day.selected { background: var(--theme); border-color: var(--theme); }
   .cal-day.selected .d, .cal-day.selected .m { color: #fff; }
-  .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 10px; font-size: 15px; color: var(--muted); }
-  .legend b { font-size: 16px; }
-  .cal-loading { text-align: center; color: var(--muted); padding: 8px 0 0; font-size: 16px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 10px; font-size: 0.8824rem; color: var(--muted); }
+  .legend b { font-size: 0.9412rem; }
+  .cal-loading { text-align: center; color: var(--muted); padding: 8px 0 0; font-size: 0.9412rem; }
 
   /* 時間 */
-  .slot-group { grid-column: 1 / -1; font-weight: 700; color: var(--muted); font-size: 16px; margin-top: 6px; }
+  .slot-group { grid-column: 1 / -1; font-weight: 700; color: var(--muted); font-size: 0.9412rem; margin-top: 6px; }
   .slots { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .slot {
     border: 2px solid var(--theme); background: #fff; border-radius: 10px; min-height: 60px; padding: 6px 4px;
     display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.25;
   }
-  .slot .t { font-size: 18px; font-weight: 700; }
-  .slot .s { font-size: 14px; color: var(--theme); font-weight: 700; }
+  .slot .t { font-size: 1.0588rem; font-weight: 700; }
+  .slot .s { font-size: 0.8235rem; color: var(--theme); font-weight: 700; }
   .slot.busy, .slot.past { border-color: var(--busy-bg); background: var(--busy-bg); }
   .slot.busy .t, .slot.past .t { color: var(--busy-text); font-weight: 400; }
   .slot.busy .s, .slot.past .s { color: var(--busy-text); }
@@ -130,53 +146,53 @@
   .toast {
     position: fixed; left: 16px; right: 16px; bottom: calc(150px + env(safe-area-inset-bottom)); z-index: 15;
     max-width: 528px; margin: 0 auto; background: #2B2B2B; color: #fff; border-radius: 12px; padding: 14px 16px;
-    font-size: 17px; font-weight: 700; white-space: pre-line; box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    font-size: 1rem; font-weight: 700; white-space: pre-line; box-shadow: 0 4px 12px rgba(0,0,0,0.25);
   }
   .time-result {
     margin-top: 14px; padding: 14px; border-radius: 10px; background: var(--theme-soft);
     display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
   }
-  .time-result .big { font-size: 21px; font-weight: 700; }
+  .time-result .big { font-size: 1.2353rem; font-weight: 700; }
 
   /* 選択肢ボタン */
   .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .choices.cols-4 { grid-template-columns: repeat(4, 1fr); }
   .choice {
     border: 2px solid var(--line); background: #fff; border-radius: 10px; min-height: 52px; padding: 8px 6px;
-    font-size: 17px; font-weight: 700; text-align: center;
+    font-size: 1rem; font-weight: 700; text-align: center;
   }
   .choice[aria-pressed="true"] { border-color: var(--theme); background: var(--theme); color: #fff; }
   .field { margin-top: 16px; }
   .field > label, .field > .label { display: block; font-weight: 700; margin-bottom: 6px; }
-  .field .hint { font-size: 15px; color: var(--muted); margin: -2px 0 6px; }
+  .field .hint { font-size: 0.8824rem; color: var(--muted); margin: -2px 0 6px; }
   .text-input {
-    width: 100%; border: 2px solid var(--line); border-radius: 10px; padding: 12px; font-size: 18px; background: #fff; min-height: 52px;
+    width: 100%; border: 2px solid var(--line); border-radius: 10px; padding: 12px; font-size: 1.0588rem; background: #fff; min-height: 52px;
   }
   .text-input:focus { border-color: var(--theme); outline: none; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-  .chip { border: 1px solid var(--theme); color: var(--theme); background: #fff; border-radius: 999px; padding: 6px 14px; font-size: 16px; }
+  .chip { border: 1px solid var(--theme); color: var(--theme); background: #fff; border-radius: 999px; padding: 6px 14px; font-size: 0.9412rem; }
 
   .saved-card { border: 2px solid var(--theme-soft); background: #FAFCFB; border-radius: 10px; padding: 12px 14px; }
-  .saved-card .name { font-size: 20px; font-weight: 700; }
-  .link-btn { border: 0; background: none; color: var(--theme); text-decoration: underline; font-weight: 700; padding: 8px 0; font-size: 17px; }
-  .check-row { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; font-size: 17px; }
+  .saved-card .name { font-size: 1.1765rem; font-weight: 700; }
+  .link-btn { border: 0; background: none; color: var(--theme); text-decoration: underline; font-weight: 700; padding: 8px 0; font-size: 1rem; }
+  .check-row { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; font-size: 1rem; }
   .check-row input { width: 26px; height: 26px; margin-top: 2px; flex: none; accent-color: var(--theme); }
 
   /* 毎週の一括予約 */
   .repeat { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 2px; }
-  .repeat .check-row { font-weight: 700; font-size: 18px; }
+  .repeat .check-row { font-weight: 700; font-size: 1.0588rem; }
   .repeat-dates { display: flex; flex-direction: column; gap: 6px; }
   .rd {
     display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; min-height: 50px; padding: 8px 12px;
-    border: 2px solid var(--line); border-radius: 10px; background: #fff; font-size: 17px; font-weight: 700; color: var(--text); text-align: left;
+    border: 2px solid var(--line); border-radius: 10px; background: #fff; font-size: 1rem; font-weight: 700; color: var(--text); text-align: left;
   }
-  .rd .s { font-size: 15px; white-space: nowrap; }
+  .rd .s { font-size: 0.8824rem; white-space: nowrap; }
   .rd[aria-pressed="true"] { border-color: var(--theme); background: var(--theme-soft); }
   .rd[aria-pressed="true"] .s { color: var(--theme); }
   .rd[aria-pressed="false"] .s { color: var(--muted); }
   .rd:disabled { background: var(--busy-bg); border-color: var(--busy-bg); color: var(--busy-text); }
-  .repeat-count { margin: 10px 0 0; font-size: 18px; font-weight: 700; color: var(--theme); }
-  .res-series { display: inline-block; margin-top: 6px; padding: 2px 10px; border-radius: 999px; background: var(--theme-soft); color: var(--theme); font-weight: 700; font-size: 15px; }
+  .repeat-count { margin: 10px 0 0; font-size: 1.0588rem; font-weight: 700; color: var(--theme); }
+  .res-series { display: inline-block; margin-top: 6px; padding: 2px 10px; border-radius: 999px; background: var(--theme-soft); color: var(--theme); font-weight: 700; font-size: 0.8824rem; }
 
   /* 下部の確定ボタン */
   .submit-bar {
@@ -184,19 +200,19 @@
     padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); z-index: 10;
   }
   .submit-bar .inner { max-width: 560px; margin: 0 auto; }
-  .submit-msg { color: var(--alert); font-weight: 700; font-size: 16px; margin: 0 0 8px; }
+  .submit-msg { color: var(--alert); font-weight: 700; font-size: 0.9412rem; margin: 0 0 8px; }
   .btn-primary {
-    width: 100%; border: 0; border-radius: 12px; background: var(--theme); color: #fff; font-size: 20px; font-weight: 700;
+    width: 100%; border: 0; border-radius: 12px; background: var(--theme); color: #fff; font-size: 1.1765rem; font-weight: 700;
     min-height: 60px; padding: 10px;
   }
   .btn-primary:active { background: var(--theme-dark); }
   .btn-primary:disabled { background: #A9B5AE; }
   .btn-secondary {
     width: 100%; border: 2px solid var(--theme); border-radius: 12px; background: #fff; color: var(--theme);
-    font-size: 18px; font-weight: 700; min-height: 54px; padding: 8px; margin-top: 10px;
+    font-size: 1.0588rem; font-weight: 700; min-height: 54px; padding: 8px; margin-top: 10px;
   }
-  .btn-small { border: 2px solid var(--theme); background: #fff; color: var(--theme); border-radius: 10px; padding: 6px 12px; font-size: 16px; font-weight: 700; min-height: 44px; }
-  .btn-danger { border: 2px solid var(--alert); background: #fff; color: var(--alert); border-radius: 10px; padding: 8px 12px; font-size: 17px; font-weight: 700; min-height: 48px; width: 100%; margin-top: 10px; }
+  .btn-small { border: 2px solid var(--theme); background: #fff; color: var(--theme); border-radius: 10px; padding: 6px 12px; font-size: 0.9412rem; font-weight: 700; min-height: 44px; }
+  .btn-danger { border: 2px solid var(--alert); background: #fff; color: var(--alert); border-radius: 10px; padding: 8px 12px; font-size: 1rem; font-weight: 700; min-height: 48px; width: 100%; margin-top: 10px; }
 
   /* 確認・完了画面 */
   .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
@@ -204,26 +220,26 @@
     background: #fff; width: 100%; max-width: 560px; max-height: 92vh; overflow-y: auto; border-radius: 18px 18px 0 0;
     padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
   }
-  .sheet h3 { margin: 0 0 6px; font-size: 22px; }
+  .sheet h3 { margin: 0 0 6px; font-size: 1.2941rem; }
   .summary { width: 100%; border-collapse: collapse; margin: 10px 0 6px; }
   .summary th, .summary td { text-align: left; vertical-align: top; padding: 9px 4px; border-bottom: 1px solid var(--line); }
-  .summary th { width: 6.5em; color: var(--muted); font-weight: 700; font-size: 16px; }
+  .summary th { width: 6.5em; color: var(--muted); font-weight: 700; font-size: 0.9412rem; }
   .summary td { font-weight: 700; }
-  .summary td.em { font-size: 20px; }
+  .summary td.em { font-size: 1.1765rem; }
 
   .overlay.notice { align-items: center; z-index: 50; }
   .notice-sheet { border-radius: 18px; margin: 0 16px; max-width: 480px; }
-  #notice-text { font-size: 20px; font-weight: 700; white-space: pre-line; margin: 8px 0 20px; line-height: 1.6; }
+  #notice-text { font-size: 1.1765rem; font-weight: 700; white-space: pre-line; margin: 8px 0 20px; line-height: 1.6; }
 
   .full-screen { position: fixed; inset: 0; background: var(--bg); z-index: 30; overflow-y: auto; }
   .full-screen .inner { max-width: 560px; margin: 0 auto; padding: 32px 16px; }
   .done-mark {
-    width: 84px; height: 84px; border-radius: 50%; background: var(--theme); color: #fff; font-size: 48px; line-height: 84px;
+    width: 84px; height: 84px; border-radius: 50%; background: var(--theme); color: #fff; font-size: 2.8235rem; line-height: 84px;
     text-align: center; margin: 8px auto 12px;
   }
   .center { text-align: center; }
 
-  .loading { position: fixed; inset: 0; background: rgba(246,246,242,0.92); z-index: 40; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; font-size: 20px; font-weight: 700; }
+  .loading { position: fixed; inset: 0; background: rgba(246,246,242,0.92); z-index: 40; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; font-size: 1.1765rem; font-weight: 700; }
   .spinner { width: 52px; height: 52px; border: 6px solid var(--theme-soft); border-top-color: var(--theme); border-radius: 50%; animation: spin 0.9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -231,19 +247,19 @@
 
   /* 予約一覧 */
   .res-card { background: var(--card); border-radius: 14px; margin-top: 14px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
-  .res-date { font-size: 20px; font-weight: 700; }
-  .res-time { font-size: 20px; font-weight: 700; color: var(--theme); }
-  .res-meta { color: var(--muted); font-size: 17px; margin-top: 4px; }
+  .res-date { font-size: 1.1765rem; font-weight: 700; }
+  .res-time { font-size: 1.1765rem; font-weight: 700; color: var(--theme); }
+  .res-meta { color: var(--muted); font-size: 1rem; margin-top: 4px; }
   .res-reported { color: var(--theme); font-weight: 700; margin-top: 8px; }
-  .btn-check { width: 100%; border: 0; border-radius: 10px; background: var(--theme); color: #fff; font-size: 18px; font-weight: 700; min-height: 52px; margin-top: 10px; }
+  .btn-check { width: 100%; border: 0; border-radius: 10px; background: var(--theme); color: #fff; font-size: 1.0588rem; font-weight: 700; min-height: 52px; margin-top: 10px; }
 
   /* 退出チェック */
   .select-item {
     display: block; width: 100%; text-align: left; border: 2px solid var(--theme); background: #fff; border-radius: 12px;
     padding: 12px 14px; margin-top: 10px;
   }
-  .select-item .d { font-size: 18px; font-weight: 700; }
-  .select-item .t { font-size: 20px; font-weight: 700; color: var(--theme); }
+  .select-item .d { font-size: 1.0588rem; font-weight: 700; }
+  .select-item .t { font-size: 1.1765rem; font-weight: 700; color: var(--theme); }
   .select-item .o { color: var(--muted); }
   .notice-box { background: var(--pick-soft); border: 2px solid var(--pick); border-radius: 12px; padding: 12px 14px; font-weight: 700; margin-top: 12px; }
   .check-item {
@@ -252,22 +268,22 @@
   }
   .check-item .box {
     flex: none; width: 30px; height: 30px; border: 2px solid var(--theme); border-radius: 6px; background: #fff;
-    display: flex; align-items: center; justify-content: center; font-size: 20px; color: #fff; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; font-size: 1.1765rem; color: #fff; font-weight: 700;
   }
   .check-item[aria-pressed="true"] { border-color: var(--theme); background: var(--theme-soft); }
   .check-item[aria-pressed="true"] .box { background: var(--theme); }
-  .check-item .txt { font-size: 18px; font-weight: 700; line-height: 1.5; }
-  .check-item small { display: block; color: var(--muted); font-size: 15px; font-weight: 400; margin-top: 2px; }
+  .check-item .txt { font-size: 1.0588rem; font-weight: 700; line-height: 1.5; }
+  .check-item small { display: block; color: var(--muted); font-size: 0.8824rem; font-weight: 400; margin-top: 2px; }
   .check-item.missing, .check-question.missing { outline: 3px solid var(--alert); outline-offset: 2px; border-radius: 12px; }
   .check-question { margin-top: 18px; }
   .check-question .q { font-weight: 700; margin-bottom: 6px; }
   .stepper { display: flex; align-items: center; gap: 14px; }
-  .stepper button { width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--theme); background: #fff; color: var(--theme); font-size: 28px; font-weight: 700; }
-  .stepper .val { font-size: 26px; font-weight: 700; min-width: 3.5em; text-align: center; }
+  .stepper button { width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--theme); background: #fff; color: var(--theme); font-size: 1.6471rem; font-weight: 700; }
+  .stepper .val { font-size: 1.5294rem; font-weight: 700; min-width: 3.5em; text-align: center; }
   .photo-thumbs { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
   .photo-thumbs figure { position: relative; margin: 0; }
   .photo-thumbs img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; display: block; }
-  .photo-thumbs button { position: absolute; top: -10px; right: -10px; width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--alert); color: #fff; font-size: 18px; }
+  .photo-thumbs button { position: absolute; top: -10px; right: -10px; width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--alert); color: #fff; font-size: 1.0588rem; }
   textarea.text-input { min-height: 96px; resize: vertical; line-height: 1.5; }
   .empty { text-align: center; color: var(--muted); padding: 40px 0; }
 
@@ -276,27 +292,29 @@
     margin-top: 16px; background: var(--pick-soft); border: 2px solid var(--pick); border-radius: 12px; padding: 12px 14px;
     display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between;
   }
-  .modify-banner b { font-size: 18px; }
-  .btn-modify { border: 2px solid var(--theme); background: #fff; color: var(--theme); border-radius: 10px; padding: 8px 12px; font-size: 17px; font-weight: 700; min-height: 48px; width: 100%; margin-top: 10px; }
+  .modify-banner b { font-size: 1.0588rem; }
+  .btn-modify { border: 2px solid var(--theme); background: #fff; color: var(--theme); border-radius: 10px; padding: 8px 12px; font-size: 1rem; font-weight: 700; min-height: 48px; width: 100%; margin-top: 10px; }
 
   /* 空きカレンダー */
   .cal-day.vc { cursor: pointer; }
   .cal-day.vc-none .m { color: var(--theme); }
-  .cal-day.vc-some .m { color: #B7791F; font-size: 14px; }
+  .cal-day.vc-some .m { color: #B7791F; font-size: 0.8235rem; }
   .cal-day.vc-full { background: var(--busy-bg); } .cal-day.vc-full .m { color: var(--busy-text); }
   .cal-day.vc-past { background: #F1F1EE; } .cal-day.vc-past .d { color: var(--busy-text); }
   .timeline { margin-top: 4px; }
-  .tl-row { display: flex; gap: 12px; align-items: baseline; padding: 12px 10px; border-radius: 10px; margin-top: 6px; }
+  /* 幅が足りないとき（文字を大きくしたときなど）は、団体名と利用目的を時間の下の行に出す */
+  .tl-row { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 12px 10px; border-radius: 10px; margin-top: 6px; }
   .tl-row .tl-time { flex: none; width: 7.2em; font-weight: 700; }
+  .tl-row .tl-what { flex: 1 1 6em; min-width: 0; overflow-wrap: anywhere; }
   .tl-row.busy { background: var(--pick-soft); border-left: 6px solid var(--pick); }
   /* 管理者だけ: 予約の行を押すと退出チェックの報告を開く */
   button.tl-row { width: 100%; text-align: left; border-top: 0; border-right: 0; border-bottom: 0; font: inherit; color: inherit; cursor: pointer; }
-  .tl-row .tl-status { margin-left: auto; flex: none; font-size: 15px; font-weight: 700; }
+  .tl-row .tl-status { margin-left: auto; flex: none; font-size: 0.8824rem; font-weight: 700; }
   .tl-status.reported { color: var(--theme); }
   .tl-status.unreported { color: var(--alert); }
 
   /* 退出チェックの報告を見る（管理者） */
-  .status-badge { display: inline-block; border-radius: 999px; padding: 4px 14px; font-weight: 700; font-size: 17px; margin: 4px 0 8px; }
+  .status-badge { display: inline-block; border-radius: 999px; padding: 4px 14px; font-weight: 700; font-size: 1rem; margin: 4px 0 8px; }
   .status-badge.reported { background: var(--theme); color: #fff; }
   .status-badge.unreported { background: var(--alert-soft); color: var(--alert); }
   .status-badge.notStarted { background: var(--busy-bg); color: var(--muted); }
@@ -304,32 +322,32 @@
   .report-list li { padding: 6px 0; border-bottom: 1px solid var(--line); }
   .report-note { background: var(--pick-soft); border: 2px solid var(--pick); border-radius: 12px; padding: 12px 14px; font-weight: 700; white-space: pre-line; margin-top: 8px; }
   /* 管理者タブ */
-  .admin-report { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; font-size: 17px; line-height: 1.6; white-space: pre-wrap; user-select: text; -webkit-user-select: text; }
+  .admin-report { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; font-size: 1rem; line-height: 1.6; white-space: pre-wrap; user-select: text; -webkit-user-select: text; }
   .ar-row {
     display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; gap: 8px;
-    border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 10px 12px; margin-top: 8px; font-size: 17px; font-weight: 700; color: var(--text); min-height: 48px;
+    border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 10px 12px; margin-top: 8px; font-size: 1rem; font-weight: 700; color: var(--text); min-height: 48px;
   }
   /* 団体の一覧の編集（管理者） */
-  .oe-group { margin: 18px 0 0; font-size: 18px; }
+  .oe-group { margin: 18px 0 0; font-size: 1.0588rem; }
   .oe-row { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 10px; margin-top: 8px; }
   .oe-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .oe-actions button, .oe-add button {
     flex: 1 1 auto; border: 2px solid var(--theme); background: #fff; color: var(--theme); border-radius: 8px;
-    min-height: 44px; padding: 4px 8px; font-size: 15px; font-weight: 700; white-space: nowrap;
+    min-height: 44px; padding: 4px 8px; font-size: 0.8824rem; font-weight: 700; white-space: nowrap;
   }
   .oe-actions button:disabled { border-color: var(--line); color: var(--busy-text); }
   .oe-actions .oe-del { border-color: var(--alert); color: var(--alert); }
   .oe-add { display: flex; gap: 8px; margin-top: 10px; }
   .oe-add .text-input { flex: 1; min-width: 0; }
-  .oe-add button { flex: none; padding: 4px 16px; font-size: 17px; }
-  .oe-status { color: var(--alert); font-weight: 700; font-size: 16px; margin: 16px 0 8px; }
+  .oe-add button { flex: none; padding: 4px 16px; font-size: 1rem; }
+  .oe-status { color: var(--alert); font-weight: 700; font-size: 0.9412rem; margin: 16px 0 8px; }
   .report-photos { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
-  .report-photos button { border: 0; padding: 0; background: var(--busy-bg); border-radius: 8px; width: 120px; height: 120px; color: var(--muted); font-size: 14px; }
+  .report-photos button { border: 0; padding: 0; background: var(--busy-bg); border-radius: 8px; width: 120px; height: 120px; color: var(--muted); font-size: 0.8235rem; }
   .report-photos img { width: 120px; height: 120px; object-fit: cover; border-radius: 8px; display: block; }
   .photo-viewer { align-items: center; z-index: 45; background: rgba(0,0,0,0.85); flex-direction: column; gap: 12px; padding: 16px; }
   .photo-viewer img { max-width: 100%; max-height: 80vh; border-radius: 8px; }
-  .tl-row.busy .tl-what { font-weight: 700; font-size: 19px; }
-  .tl-row .tl-purpose { display: block; font-weight: 400; font-size: 16px; }
+  .tl-row.busy .tl-what { font-weight: 700; font-size: 1.1176rem; }
+  .tl-row .tl-purpose { display: block; font-weight: 400; font-size: 0.9412rem; }
   .tl-row.free { background: var(--theme-soft); color: var(--theme); }
 </style>
 </head>
@@ -337,9 +355,9 @@
 
 <header class="app-header">第一住宅自治会館の予約</header>
 <nav class="tabs" role="tablist">
-  <button class="tab" role="tab" id="tab-reserve" aria-selected="true">予約する</button>
-  <button class="tab" role="tab" id="tab-calendar" aria-selected="false">空きカレンダー</button>
-  <button class="tab" role="tab" id="tab-list" aria-selected="false">自分の予約</button>
+  <button class="tab" role="tab" id="tab-reserve" aria-selected="true">予約<wbr>する</button>
+  <button class="tab" role="tab" id="tab-calendar" aria-selected="false">空き<wbr>カレンダー</button>
+  <button class="tab" role="tab" id="tab-list" aria-selected="false">自分の<wbr>予約</button>
   <button class="tab hidden" role="tab" id="tab-admin" aria-selected="false">管理者</button>
 </nav>
 
@@ -374,7 +392,7 @@
       <div class="slots" id="slots"></div>
       <div class="time-result hidden" id="time-result">
         <div>
-          <div style="font-size:15px;color:var(--muted)" id="time-result-date"></div>
+          <div style="font-size:0.8824rem;color:var(--muted)" id="time-result-date"></div>
           <div class="big" id="time-result-text"></div>
         </div>
         <button class="btn-small" id="time-reset">選び直す</button>
@@ -513,7 +531,7 @@
       </div>
       <div class="admin-report" id="ar-text"></div>
       <button class="btn-secondary" id="ar-copy">この文字をコピーする</button>
-      <p class="guide" style="margin:8px 0 0;font-size:15px">コピーすると、役員のグループのトークなどに貼り付けて送れます。</p>
+      <p class="guide" style="margin:8px 0 0;font-size:0.8824rem">コピーすると、役員のグループのトークなどに貼り付けて送れます。</p>
       <div id="ar-unreported"></div>
     </div>
     <div class="step" id="org-editor">
@@ -594,7 +612,7 @@
 <!-- 退出チェックの報告を見る（管理者だけ） -->
 <div class="full-screen hidden" id="report-screen" role="dialog" aria-modal="true" aria-labelledby="report-title">
   <div class="inner" style="padding-bottom:48px">
-    <h2 id="report-title" style="margin:0 0 4px;font-size:24px">退出チェックの報告</h2>
+    <h2 id="report-title" style="margin:0 0 4px;font-size:1.4118rem">退出チェックの報告</h2>
     <div id="report-body"></div>
     <button class="btn-secondary" id="report-close" style="margin-top:20px">閉じる</button>
   </div>
@@ -607,7 +625,7 @@
 <!-- 退出チェックの報告 -->
 <div class="full-screen hidden" id="check-screen" role="dialog" aria-modal="true" aria-labelledby="check-title">
   <div class="inner" style="padding-bottom:48px">
-    <h2 id="check-title" style="margin:0 0 4px;font-size:24px">退出チェック</h2>
+    <h2 id="check-title" style="margin:0 0 4px;font-size:1.4118rem">退出チェック</h2>
     <p class="guide strong" id="check-target" style="white-space:pre-line"></p>
     <p class="guide">確かめたものを押して、すべてに ✓ を付けてください。</p>
     <div id="check-notices"></div>
@@ -643,10 +661,10 @@
 <div class="full-screen hidden" id="done-screen">
   <div class="inner">
     <div class="done-mark" aria-hidden="true">✓</div>
-    <h2 class="center" id="done-title" style="margin:0 0 4px;font-size:24px">予約が完了しました</h2>
+    <h2 class="center" id="done-title" style="margin:0 0 4px;font-size:1.4118rem">予約が完了しました</h2>
     <p class="center" style="margin:0;color:var(--muted)">LINEのトークにも内容をお送りしました。</p>
     <table class="summary" id="done-table" style="margin-top:16px"></table>
-    <p style="font-size:17px">当日はスマートロックの暗証番号でご入場ください。</p>
+    <p style="font-size:1rem">当日はスマートロックの暗証番号でご入場ください。</p>
     <button class="btn-primary" id="btn-close">閉じる</button>
     <button class="btn-secondary" id="btn-again">予約画面に戻る</button>
   </div>
@@ -660,6 +678,15 @@
 </div>
 
 <script>
+/**
+ * iPhone の「文字サイズ」に合わせた文字の大きさを、17px（今までの大きさ）〜34px（2倍）におさめる。
+ * 「さらに大きな文字」では3倍近くになり、画面に入りきらないため。
+ */
+(function fitRootFont() {
+  const root = document.documentElement;
+  const px = parseFloat(getComputedStyle(root).fontSize);
+  if (px) root.style.fontSize = `${Math.min(34, Math.max(17, px))}px`;
+})();
 // ===== 設定 =====
 // 同じファイルを GitHub Pages の /jichikai-liff/（本番）と /jichikai-liff/dev/（開発）に置き、
 // 置かれた場所で接続先を切り替える。
@@ -848,6 +875,7 @@ function renderCalendar() {
     html += `<button class="${cls}" data-date="${date}" ${selectable ? '' : 'disabled'} aria-label="${label}"><span class="d">${d}</span><span class="m">${mark}</span></button>`;
   }
   $('cal-grid').innerHTML = html;
+  fitCalendars();
 }
 function selectDate(date) {
   state.date = date;
@@ -1441,7 +1469,7 @@ async function openReport(reservationId) {
       ? `<div class="report-photos">${Array.from({ length: rep.photoCount }, (_, i) => `<button data-photo="${i}" disabled>読み込み中…</button>`).join('')}</div>`
       : '';
     const photoError = rep.photoError
-      ? `<div class="error-box" style="font-size:16px">写真が付いていましたが、保存できませんでした。システム担当に次の文を伝えてください。<br><small style="font-weight:400;word-break:break-all">${esc(rep.photoError)}</small></div>`
+      ? `<div class="error-box" style="font-size:0.9412rem">写真が付いていましたが、保存できませんでした。システム担当に次の文を伝えてください。<br><small style="font-weight:400;word-break:break-all">${esc(rep.photoError)}</small></div>`
       : '';
     html += `<div class="field"><div class="label">気づいたこと</div>${rep.note || rep.photoCount || rep.photoError
       ? `<div class="report-note">${rep.note ? esc(rep.note) : '（写真のみ）'}${photos}${photoError}</div>` : '<div class="guide">（なし）</div>'}</div>`;
@@ -1594,6 +1622,7 @@ function renderVcCalendar() {
     html += `<button class="${cls}" data-vcdate="${date}" ${out ? 'disabled' : ''} aria-label="${label}"><span class="d">${d}</span><span class="m">${mark}</span></button>`;
   }
   $('vc-grid').innerHTML = html;
+  fitCalendars();
 }
 function selectVcDate(date) {
   state.vcDate = date;
@@ -1649,6 +1678,24 @@ function renderAdminMonth() {
   const [y, m] = state.arMonth.split('-').map(Number);
   $('ar-title').textContent = `${y}年${m}月`;
   $('ar-next').disabled = state.arMonth >= state.rules.maxDate.slice(0, 7);
+  fitCalendars();
+}
+
+/**
+ * スマホの文字を大きくしていてカレンダーが入りきらないときだけ、並べ方を変える。
+ * 月の切り替え（前の月・年月・次の月）は2行に分け、日にちの数字がマスからはみ出すときは数字を小さくする。
+ * 文字の大きさの設定は CSS では分からないため、実際にはみ出しているかを測って決める。
+ */
+function fitCalendars() {
+  const overflows = el => el.scrollWidth > el.clientWidth + 1;
+  document.querySelectorAll('.cal-nav').forEach(nav => {
+    nav.classList.remove('stack');
+    if (overflows(nav)) nav.classList.add('stack');
+  });
+  document.querySelectorAll('.cal-grid').forEach(grid => {
+    grid.classList.remove('tight');
+    if ([...grid.querySelectorAll('.cal-day')].some(overflows)) grid.classList.add('tight');
+  });
 }
 async function loadAdminReport(preloaded) {
   const month = state.arMonth;
@@ -1668,8 +1715,8 @@ async function loadAdminReport(preloaded) {
   $('ar-text').textContent = res.text;
   $('ar-copy').disabled = false;
   $('ar-unreported').innerHTML = res.unreported.length ? `
-    <h3 style="margin:20px 0 0;font-size:18px">退出チェックの報告がなかった予約</h3>
-    <p class="guide" style="margin:4px 0 0;font-size:15px">押すと、申し込んだ人などが見られます。</p>
+    <h3 style="margin:20px 0 0;font-size:1.0588rem">退出チェックの報告がなかった予約</h3>
+    <p class="guide" style="margin:4px 0 0;font-size:0.8824rem">押すと、申し込んだ人などが見られます。</p>
     ${res.unreported.map(r => `<button class="ar-row" data-report="${esc(r.id)}">
       <span>${esc(dispDate(r.date))} ${esc(dispTime(r.start))}〜<br>${esc(r.organization)}</span><span aria-hidden="true">›</span></button>`).join('')}` : '';
 }
@@ -1824,6 +1871,7 @@ async function switchTab(tab) {
 
 // ===== イベント =====
 function bindEvents() {
+  window.addEventListener('resize', fitCalendars);
   $('tab-reserve').onclick = () => switchTab('reserve');
   $('tab-list').onclick = () => switchTab('list');
   $('tab-calendar').onclick = () => switchTab('calendar');
